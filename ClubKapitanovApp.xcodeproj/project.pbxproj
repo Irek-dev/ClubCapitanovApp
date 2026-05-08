@@ -14,7 +14,6 @@
 		5813F9A12F810CB9001CE4F7 /* Exceptions for "ClubKapitanovApp" folder in "ClubKapitanovApp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Docs/PROJECT_DEEP_DIVE.md,
 				Info.plist,
 			);
 			target = 5813F98E2F810CB8001CE4F7 /* ClubKapitanovApp */;
