@@ -1,7 +1,34 @@
+# macOS
 .DS_Store
-DerivedData/
-build/
+
+# Xcode user settings
+xcuserdata/
 *.xcuserstate
 *.xcscmblueprint
-xcuserdata/
+*.hmap
+
+# Build output
+DerivedData/
+build/
+.build/
+
+# App packaging
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Carthage
+Carthage/Build/
+
+# fastlane generated files
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Local instruction backups
 AGENTS.md.backup.*
