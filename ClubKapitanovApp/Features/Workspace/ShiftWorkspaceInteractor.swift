@@ -243,7 +243,15 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         }
 
         let now = dateProvider.now
-        let order = makeActiveRentalOrder(items: validSelections, startedAt: now)
+        guard let order = makeActiveRentalOrder(items: validSelections, startedAt: now) else {
+            presenter.present(
+                feedback: .init(
+                    title: "Не выбрано",
+                    message: "Добавьте хотя бы один объект с номером от 1 до 99."
+                )
+            )
+            return
+        }
         state.rentalOrders.append(order)
         persistCurrentOperations()
 
@@ -531,7 +539,11 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
     private func makeActiveRentalOrder(
         items: [(type: RentalType, number: Int)],
         startedAt: Date
-    ) -> RentalOrder {
+    ) -> RentalOrder? {
+        guard let primaryType = items.first?.type else {
+            return nil
+        }
+
         let itemSnapshots = items.map { item in
             let tariff = item.type.defaultTariff
             return RentalOrderItemSnapshot(
@@ -547,7 +559,6 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         }
         let selectedTariffs = itemSnapshots.compactMap(\.tariffPriceSnapshot)
         let durationMinutes = itemSnapshots.compactMap(\.tariffDurationMinutes).max() ?? RentalTiming.fallbackDurationMinutes
-        let primaryType = items[0].type
         let orderName = items.count == 1 ? primaryType.name : "Смешанный заказ"
         let expectedDuration = TimeInterval(durationMinutes * 60)
 

@@ -5,11 +5,17 @@ final class ShiftWorkspaceAddParticipantModalView: UIView {
     var onDismiss: (() -> Void)?
     var onConfirm: ((String) -> Void)?
 
-    private let dialogView = UIView()
+    private let dialogView = ShiftWorkspaceShadowCardView(
+        cornerRadius: 24,
+        shadowOpacity: 0.12,
+        shadowRadius: 24,
+        shadowOffset: CGSize(width: 0, height: 14)
+    )
     private let pinField = UITextField()
     private let messageLabel = UILabel()
     private let confirmButton = UIButton(type: .system)
     private var dialogCenterYConstraint: NSLayoutConstraint?
+    private var keyboardObserverTokens: [NSObjectProtocol] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -24,7 +30,7 @@ final class ShiftWorkspaceAddParticipantModalView: UIView {
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        keyboardObserverTokens.forEach(NotificationCenter.default.removeObserver)
     }
 
     override func didMoveToWindow() {
@@ -36,6 +42,11 @@ final class ShiftWorkspaceAddParticipantModalView: UIView {
         }
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        applyPINFieldStyle()
+    }
+
     private func configureUI() {
         let stackView = UIStackView()
         let titleLabel = UILabel()
@@ -44,11 +55,6 @@ final class ShiftWorkspaceAddParticipantModalView: UIView {
         let cancelButton = UIButton(type: .system)
 
         backgroundColor = BrandColor.modalOverlay
-
-        dialogView.backgroundColor = BrandColor.surface
-        dialogView.layer.cornerRadius = 24
-        dialogView.layer.cornerCurve = .continuous
-        applySoftShadow(to: dialogView)
 
         stackView.axis = .vertical
         stackView.spacing = 16
@@ -116,11 +122,7 @@ final class ShiftWorkspaceAddParticipantModalView: UIView {
         pinField.font = BrandFont.demiBold(28)
         pinField.textColor = BrandColor.textPrimary
         pinField.tintColor = BrandColor.accentOrange
-        pinField.backgroundColor = BrandColor.surfaceMuted
-        pinField.layer.cornerRadius = 18
-        pinField.layer.cornerCurve = .continuous
-        pinField.layer.borderWidth = 1
-        pinField.layer.borderColor = BrandColor.cgColor(BrandColor.fieldBorder, compatibleWith: traitCollection)
+        applyPINFieldStyle()
         pinField.delegate = self
         pinField.addTarget(self, action: #selector(didChangePINText), for: .editingChanged)
         pinField.setHeight(58)
@@ -152,54 +154,49 @@ final class ShiftWorkspaceAddParticipantModalView: UIView {
         button.setHeight(50)
     }
 
+    private func applyPINFieldStyle() {
+        ShiftWorkspaceLayerStyling.applyBorderedSurface(
+            to: pinField,
+            compatibleWith: traitCollection,
+            cornerRadius: 18,
+            fillColor: BrandColor.surfaceMuted
+        )
+    }
+
     private func observeKeyboard() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardWillChangeFrame(_:)),
-            name: UIResponder.keyboardWillChangeFrameNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardWillHide(_:)),
-            name: UIResponder.keyboardWillHideNotification,
-            object: nil
-        )
+        keyboardObserverTokens = [
+            NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillChangeFrameNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleKeyboardWillChangeFrame(notification)
+            },
+            NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillHideNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleKeyboardWillHide(notification)
+            }
+        ]
     }
 
-    @objc
     private func handleKeyboardWillChangeFrame(_ notification: Notification) {
-        let keyboardHeight = keyboardOverlapHeight(from: notification)
-        updateForKeyboard(height: keyboardHeight, notification: notification)
+        let transition = KeyboardTransition(notification: notification, in: self)
+        updateForKeyboard(height: transition.overlapHeight, transition: transition)
     }
 
-    @objc
     private func handleKeyboardWillHide(_ notification: Notification) {
-        updateForKeyboard(height: 0, notification: notification)
+        updateForKeyboard(height: 0, transition: KeyboardTransition(notification: notification, in: self))
     }
 
-    private func keyboardOverlapHeight(from notification: Notification) -> CGFloat {
-        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
-            return 0
-        }
-
-        let keyboardFrameInView = convert(keyboardFrame, from: nil)
-        return max(0, bounds.maxY - keyboardFrameInView.minY)
-    }
-
-    private func updateForKeyboard(height: CGFloat, notification: Notification) {
+    private func updateForKeyboard(height: CGFloat, transition: KeyboardTransition) {
         dialogCenterYConstraint?.constant = -min(120, height / 2)
 
-        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval ?? 0.25
-        let rawCurve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 0
-        let options = UIView.AnimationOptions(rawValue: rawCurve << 16)
-
-        UIView.animate(
-            withDuration: duration,
-            delay: 0,
-            options: options,
-            animations: { self.layoutIfNeeded() }
-        )
+        transition.animate { [weak self] in
+            self?.layoutIfNeeded()
+        }
     }
 
     private func updateConfirmButtonState() {
@@ -210,13 +207,6 @@ final class ShiftWorkspaceAddParticipantModalView: UIView {
         if isReady {
             messageLabel.isHidden = true
         }
-    }
-
-    private func applySoftShadow(to view: UIView) {
-        view.layer.shadowColor = BrandColor.cgColor(BrandColor.shadow, compatibleWith: traitCollection)
-        view.layer.shadowOpacity = 0.12
-        view.layer.shadowRadius = 24
-        view.layer.shadowOffset = CGSize(width: 0, height: 14)
     }
 
     @objc

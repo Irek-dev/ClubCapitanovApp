@@ -29,6 +29,7 @@ final class LoginViewController: UIViewController {
     private let messageLabel = UILabel()
     private var scrollViewBottomConstraint: NSLayoutConstraint?
     private var isKeyboardVisible = false
+    private var keyboardObserverTokens: [NSObjectProtocol] = []
 
     // MARK: - Init
 
@@ -69,7 +70,7 @@ final class LoginViewController: UIViewController {
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        keyboardObserverTokens.forEach(NotificationCenter.default.removeObserver)
     }
 
     // MARK: - UI
@@ -125,6 +126,7 @@ final class LoginViewController: UIViewController {
         badgeView.backgroundColor = BrandColor.clear
 
         badgeImageView.contentMode = .scaleAspectFit
+        badgeImageView.isAccessibilityElement = false
 
         badgeContainerView.addSubview(badgeView)
         badgeView.addSubview(badgeImageView)
@@ -238,32 +240,34 @@ final class LoginViewController: UIViewController {
     // MARK: - Keyboard
 
     private func observeKeyboard() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardWillChangeFrame(_:)),
-            name: UIResponder.keyboardWillChangeFrameNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardWillHide(_:)),
-            name: UIResponder.keyboardWillHideNotification,
-            object: nil
-        )
+        keyboardObserverTokens = [
+            NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillChangeFrameNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleKeyboardWillChangeFrame(notification)
+            },
+            NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillHideNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleKeyboardWillHide(notification)
+            }
+        ]
     }
 
-    @objc
     private func handleKeyboardWillChangeFrame(_ notification: Notification) {
-        let keyboardHeight = keyboardOverlapHeight(from: notification)
-        updateForKeyboard(height: keyboardHeight, notification: notification)
+        let transition = KeyboardTransition(notification: notification, in: view)
+        updateForKeyboard(height: transition.overlapHeight, transition: transition)
     }
 
-    @objc
     private func handleKeyboardWillHide(_ notification: Notification) {
-        updateForKeyboard(height: 0, notification: notification)
+        updateForKeyboard(height: 0, transition: KeyboardTransition(notification: notification, in: view))
     }
 
-    private func updateForKeyboard(height: CGFloat, notification: Notification) {
+    private func updateForKeyboard(height: CGFloat, transition: KeyboardTransition) {
         // На iPad клавиатура может перекрыть PIN-поле. Экран временно включает scroll
         // и поднимает нижнюю границу scrollView на высоту перекрытия.
         isKeyboardVisible = height > 0
@@ -272,7 +276,7 @@ final class LoginViewController: UIViewController {
         scrollView.alwaysBounceVertical = false
         scrollViewBottomConstraint?.constant = -height
 
-        animateAlongsideKeyboard(notification) { [weak self] in
+        transition.animate { [weak self] in
             guard let self else { return }
             self.view.layoutIfNeeded()
 
@@ -285,33 +289,6 @@ final class LoginViewController: UIViewController {
                 self.scrollView.setContentOffset(.zero, animated: false)
             }
         }
-    }
-
-    private func keyboardOverlapHeight(from notification: Notification) -> CGFloat {
-        guard
-            let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
-        else {
-            return 0
-        }
-
-        let keyboardFrameInView = view.convert(keyboardFrame, from: nil)
-        return max(0, view.bounds.maxY - keyboardFrameInView.minY)
-    }
-
-    private func animateAlongsideKeyboard(
-        _ notification: Notification,
-        animations: @escaping () -> Void
-    ) {
-        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval ?? 0.25
-        let rawCurve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 0
-        let options = UIView.AnimationOptions(rawValue: rawCurve << 16)
-
-        UIView.animate(
-            withDuration: duration,
-            delay: 0,
-            options: options,
-            animations: animations
-        )
     }
 
     // MARK: - Actions
