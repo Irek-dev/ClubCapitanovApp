@@ -6,7 +6,12 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
     var onConfirm: (([ShiftWorkspace.RentalOrderItemInput]) -> Void)?
 
     private let rentalTypes: [ShiftWorkspace.RentalOrderItemTypeViewModel]
-    private let dialogView = UIView()
+    private let dialogView = ShiftWorkspaceShadowCardView(
+        cornerRadius: 18,
+        shadowOpacity: 0.16,
+        shadowRadius: 28,
+        shadowOffset: CGSize(width: 0, height: 16)
+    )
     private let rowsStackView = UIStackView()
     private let messageLabel = UILabel()
     private var rowViews: [RentalOrderItemRowView] = []
@@ -35,18 +40,14 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
 
         backgroundColor = BrandColor.modalOverlay
 
-        dialogView.backgroundColor = BrandColor.surface
-        dialogView.layer.cornerRadius = 18
-        dialogView.layer.cornerCurve = .continuous
         dialogView.clipsToBounds = true
-        applySoftShadow(to: dialogView)
 
         titleLabel.text = "Новый заказ"
         titleLabel.textColor = BrandColor.textPrimary
         titleLabel.font = BrandFont.bold(24)
         titleLabel.textAlignment = .center
 
-        configureIconButton(closeButton, systemName: "xmark")
+        configureIconButton(closeButton, systemName: "xmark", accessibilityLabel: "Закрыть")
         closeButton.addTarget(self, action: #selector(didTapDismiss), for: .touchUpInside)
 
         topSeparatorView.backgroundColor = BrandColor.fieldBorder
@@ -148,12 +149,13 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
         rowsStackView.addArrangedSubview(rowView)
     }
 
-    private func configureIconButton(_ button: UIButton, systemName: String) {
+    private func configureIconButton(_ button: UIButton, systemName: String, accessibilityLabel: String) {
         var configuration = UIButton.Configuration.plain()
         configuration.image = UIImage(systemName: systemName)
         configuration.baseForegroundColor = BrandColor.textSecondary
         configuration.contentInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
         button.configuration = configuration
+        button.accessibilityLabel = accessibilityLabel
         button.setWidth(38)
         button.setHeight(38)
     }
@@ -198,13 +200,6 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
         button.setHeight(56)
     }
 
-    private func applySoftShadow(to view: UIView) {
-        view.layer.shadowColor = BrandColor.cgColor(BrandColor.shadow, compatibleWith: traitCollection)
-        view.layer.shadowOpacity = 0.16
-        view.layer.shadowRadius = 28
-        view.layer.shadowOffset = CGSize(width: 0, height: 16)
-    }
-
     @objc
     private func didTapAddRow() {
         addOrderItemRow()
@@ -236,7 +231,11 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
                 return
             }
 
-            let selectedType = rowView.selectedRentalType
+            guard let selectedType = rowView.selectedRentalType else {
+                showError("Каталог проката пуст: нечего добавить в заказ.")
+                return
+            }
+
             let key = "\(selectedType.index)-\(number)"
 
             guard !seenKeys.contains(key) else {
@@ -279,8 +278,8 @@ private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
     private let selectTypeButton = UIButton(type: .system)
     private let numberField = UITextField()
 
-    var selectedRentalType: ShiftWorkspace.RentalOrderItemTypeViewModel {
-        rentalTypes.first { $0.index == selectedTypeIndex } ?? rentalTypes[0]
+    var selectedRentalType: ShiftWorkspace.RentalOrderItemTypeViewModel? {
+        rentalTypes.first { $0.index == selectedTypeIndex } ?? rentalTypes.first
     }
 
     var enteredNumber: Int? {
@@ -307,14 +306,16 @@ private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        applyContainerStyle()
+        applyNumberFieldStyle()
+    }
+
     private func configureUI() {
         let stackView = UIStackView()
 
-        backgroundColor = BrandColor.surfaceMuted
-        layer.cornerRadius = 12
-        layer.cornerCurve = .continuous
-        layer.borderWidth = 1
-        layer.borderColor = BrandColor.cgColor(BrandColor.fieldBorder, compatibleWith: traitCollection)
+        applyContainerStyle()
 
         stackView.axis = .horizontal
         stackView.spacing = 12
@@ -355,18 +356,38 @@ private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
         numberField.font = BrandFont.demiBold(18)
         numberField.textColor = BrandColor.textPrimary
         numberField.tintColor = BrandColor.accentOrange
-        numberField.backgroundColor = BrandColor.surface
-        numberField.layer.cornerRadius = 8
-        numberField.layer.cornerCurve = .continuous
-        numberField.layer.borderWidth = 1
-        numberField.layer.borderColor = BrandColor.cgColor(BrandColor.fieldBorder, compatibleWith: traitCollection)
+        applyNumberFieldStyle()
         numberField.delegate = self
         numberField.setWidth(104)
         numberField.setHeight(42)
     }
 
+    private func applyContainerStyle() {
+        ShiftWorkspaceLayerStyling.applyBorderedSurface(
+            to: self,
+            compatibleWith: traitCollection,
+            cornerRadius: 12,
+            fillColor: BrandColor.surfaceMuted
+        )
+    }
+
+    private func applyNumberFieldStyle() {
+        ShiftWorkspaceLayerStyling.applyBorderedSurface(
+            to: numberField,
+            compatibleWith: traitCollection,
+            cornerRadius: 8,
+            fillColor: BrandColor.surface
+        )
+    }
+
     private func updateSelectedType() {
-        let selectedType = selectedRentalType
+        guard let selectedType = selectedRentalType else {
+            selectTypeButton.configuration?.title = "Нет доступных объектов"
+            selectTypeButton.isEnabled = false
+            selectTypeButton.menu = nil
+            return
+        }
+
         let titleFont = BrandFont.demiBold(17)
         var configuration = selectTypeButton.configuration ?? UIButton.Configuration.plain()
         configuration.title = "\(selectedType.iconText)  \(selectedType.title) — \(selectedType.tariffText)"

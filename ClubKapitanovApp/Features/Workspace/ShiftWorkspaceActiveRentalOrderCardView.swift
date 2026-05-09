@@ -14,7 +14,6 @@ final class ActiveRentalOrderCardView: UIView {
         super.init(frame: .zero)
         configureUI()
         updateTimerState()
-        startTimer()
     }
 
     @available(*, unavailable)
@@ -23,7 +22,26 @@ final class ActiveRentalOrderCardView: UIView {
     }
 
     deinit {
-        timer?.invalidate()
+        stopTimer()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+
+        if window == nil {
+            stopTimer()
+        } else {
+            updateTimerState()
+            startTimer()
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.shadowPath = UIBezierPath(
+            roundedRect: bounds,
+            cornerRadius: layer.cornerRadius
+        ).cgPath
     }
 
     private func configureUI() {
@@ -122,11 +140,18 @@ final class ActiveRentalOrderCardView: UIView {
     }
 
     private func startTimer() {
+        guard timer == nil else { return }
+
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             self?.updateTimerState()
         }
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
     }
 
     private func updateTimerState() {

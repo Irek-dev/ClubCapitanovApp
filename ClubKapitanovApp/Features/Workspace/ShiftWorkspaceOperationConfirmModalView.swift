@@ -13,6 +13,12 @@ final class ShiftWorkspaceOperationConfirmModalView: UIView {
     private let moneyFormatter = RubleMoneyFormatter()
     private var quantity = 1
 
+    private let dialogView = ShiftWorkspaceShadowCardView(
+        cornerRadius: 24,
+        shadowOpacity: 0.12,
+        shadowRadius: 24,
+        shadowOffset: CGSize(width: 0, height: 14)
+    )
     private let quantityLabel = UILabel()
     private let totalLabel = UILabel()
     private let decrementButton = UIButton(type: .system)
@@ -35,7 +41,6 @@ final class ShiftWorkspaceOperationConfirmModalView: UIView {
     private func configureUI() {
         // Модалка переиспользуется для сувенирки и штрафов: тексты, цвет действия,
         // счетчик и выбор оплаты работают одинаково для обеих операций.
-        let dialogView = UIView()
         let stackView = UIStackView()
         let titleLabel = UILabel()
         let itemLabel = UILabel()
@@ -47,11 +52,6 @@ final class ShiftWorkspaceOperationConfirmModalView: UIView {
         let confirmButton = UIButton(type: .system)
 
         backgroundColor = BrandColor.modalOverlay
-
-        dialogView.backgroundColor = BrandColor.surface
-        dialogView.layer.cornerRadius = 24
-        dialogView.layer.cornerCurve = .continuous
-        applySoftShadow(to: dialogView)
 
         stackView.axis = .vertical
         stackView.spacing = 18
@@ -79,8 +79,8 @@ final class ShiftWorkspaceOperationConfirmModalView: UIView {
         quantityStackView.distribution = .equalSpacing
         quantityStackView.spacing = 16
 
-        configureQuantityButton(decrementButton, systemName: "minus")
-        configureQuantityButton(incrementButton, systemName: "plus")
+        configureQuantityButton(decrementButton, systemName: "minus", accessibilityLabel: "Уменьшить количество")
+        configureQuantityButton(incrementButton, systemName: "plus", accessibilityLabel: "Увеличить количество")
         decrementButton.addTarget(self, action: #selector(didTapDecrement), for: .touchUpInside)
         incrementButton.addTarget(self, action: #selector(didTapIncrement), for: .touchUpInside)
 
@@ -138,7 +138,7 @@ final class ShiftWorkspaceOperationConfirmModalView: UIView {
         stackView.pin(to: dialogView, 24)
     }
 
-    private func configureQuantityButton(_ button: UIButton, systemName: String) {
+    private func configureQuantityButton(_ button: UIButton, systemName: String, accessibilityLabel: String) {
         var configuration = UIButton.Configuration.filled()
         configuration.image = UIImage(systemName: systemName)
         configuration.baseBackgroundColor = BrandColor.surfaceMuted
@@ -148,6 +148,7 @@ final class ShiftWorkspaceOperationConfirmModalView: UIView {
 
         button.configuration = configuration
         button.tintColor = BrandColor.textPrimary
+        button.accessibilityLabel = accessibilityLabel
         button.setWidth(48)
         button.setHeight(48)
     }
@@ -182,13 +183,6 @@ final class ShiftWorkspaceOperationConfirmModalView: UIView {
         moneyFormatter.string(from: money, includesCurrencySymbol: true)
     }
 
-    private func applySoftShadow(to view: UIView) {
-        view.layer.shadowColor = BrandColor.cgColor(BrandColor.shadow, compatibleWith: traitCollection)
-        view.layer.shadowOpacity = 0.12
-        view.layer.shadowRadius = 24
-        view.layer.shadowOffset = CGSize(width: 0, height: 14)
-    }
-
     @objc
     private func didTapDecrement() {
         quantity = max(1, quantity - 1)
@@ -209,87 +203,5 @@ final class ShiftWorkspaceOperationConfirmModalView: UIView {
     @objc
     private func didTapConfirm() {
         onConfirm?(quantity, paymentSelector.selectedPaymentMethod)
-    }
-}
-
-final class ShiftWorkspacePaymentMethodSelectorView: UIView {
-    private let accentColor: UIColor
-    private let stackView = UIStackView()
-    private let titleLabel = UILabel()
-    private var buttonsByMethod: [PaymentMethod: UIButton] = [:]
-
-    private(set) var selectedPaymentMethod: PaymentMethod = .card {
-        didSet {
-            updateButtons()
-        }
-    }
-
-    init(tintColor: UIColor) {
-        self.accentColor = tintColor
-        super.init(frame: .zero)
-        configureUI()
-        updateButtons()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func configureUI() {
-        let buttonsStackView = UIStackView()
-
-        stackView.axis = .vertical
-        stackView.spacing = 8
-
-        titleLabel.text = "Способ оплаты"
-        titleLabel.textColor = BrandColor.textSecondary
-        titleLabel.font = BrandFont.demiBold(13)
-        titleLabel.numberOfLines = 0
-
-        buttonsStackView.axis = .horizontal
-        buttonsStackView.distribution = .fillEqually
-        buttonsStackView.spacing = 8
-
-        addSubview(stackView)
-        stackView.addArrangedSubview(titleLabel)
-        stackView.addArrangedSubview(buttonsStackView)
-
-        PaymentMethod.workspaceSelectionOrder.forEach { method in
-            let button = UIButton(type: .system)
-            button.tag = PaymentMethod.workspaceSelectionOrder.firstIndex(of: method) ?? 0
-            button.addTarget(self, action: #selector(didTapPaymentButton(_:)), for: .touchUpInside)
-            button.setHeight(42)
-            buttonsByMethod[method] = button
-            buttonsStackView.addArrangedSubview(button)
-        }
-
-        stackView.pin(to: self)
-    }
-
-    private func updateButtons() {
-        PaymentMethod.workspaceSelectionOrder.forEach { method in
-            guard let button = buttonsByMethod[method] else { return }
-            let isSelected = method == selectedPaymentMethod
-            let titleFont = BrandFont.demiBold(14)
-            var configuration = UIButton.Configuration.filled()
-            configuration.title = method.workspaceTitle
-            configuration.baseBackgroundColor = isSelected ? accentColor : BrandColor.surfaceMuted
-            configuration.baseForegroundColor = isSelected ? BrandColor.onPrimary : BrandColor.textPrimary
-            configuration.cornerStyle = .large
-            configuration.contentInsets = .init(top: 10, leading: 10, bottom: 10, trailing: 10)
-            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-                var outgoing = incoming
-                outgoing.font = titleFont
-                return outgoing
-            }
-            button.configuration = configuration
-        }
-    }
-
-    @objc
-    private func didTapPaymentButton(_ sender: UIButton) {
-        guard PaymentMethod.workspaceSelectionOrder.indices.contains(sender.tag) else { return }
-        selectedPaymentMethod = PaymentMethod.workspaceSelectionOrder[sender.tag]
     }
 }

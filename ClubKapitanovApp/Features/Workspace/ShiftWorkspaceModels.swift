@@ -110,6 +110,8 @@ enum ShiftWorkspace {
     struct CloseShiftModalViewModel {
         let totalsLines: [String]
         let reportDateText: String
+        let weatherTitle: String
+        let weatherPlaceholder: String
         let equipmentRows: [CloseShiftManualRowViewModel]
         let batteryRows: [CloseShiftManualRowViewModel]
         let dismissButtonTitle: String

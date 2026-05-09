@@ -6,6 +6,14 @@ import UIKit
 /// сувенирка, штрафы, временный отчет или закрытие смены. Все действия отдаются
 /// наружу closure-ами, чтобы view не зависел от Interactor.
 final class ShiftWorkspacePadContentView: UIView {
+    private enum ReportPreviewLineStyle {
+        case separator
+        case title
+        case bullet
+        case section
+        case keyValue
+    }
+
     var onTapSouvenir: ((ShiftWorkspace.ActionButtonViewModel) -> Void)?
     var onTapFine: ((ShiftWorkspace.ActionButtonViewModel) -> Void)?
     var onTapCreateRentalOrder: (([ShiftWorkspace.RentalOrderItemTypeViewModel]) -> Void)?
@@ -160,21 +168,11 @@ final class ShiftWorkspacePadContentView: UIView {
     }
 
     private func makeSectionIntro(_ text: String) -> UILabel {
-        let label = UILabel()
-        label.text = text
-        label.textColor = BrandColor.textSecondary
-        label.font = BrandFont.regular(17)
-        label.numberOfLines = 0
-        return label
+        makeMultilineLabel(text: text, color: BrandColor.textSecondary, font: BrandFont.regular(17))
     }
 
     private func makeSubsectionTitle(_ text: String) -> UILabel {
-        let label = UILabel()
-        label.text = text
-        label.textColor = BrandColor.textPrimary
-        label.font = BrandFont.bold(18)
-        label.numberOfLines = 0
-        return label
+        makeMultilineLabel(text: text, color: BrandColor.textPrimary, font: BrandFont.bold(18))
     }
 
     private func makeActionButton(title: String, color: UIColor) -> UIButton {
@@ -232,88 +230,95 @@ final class ShiftWorkspacePadContentView: UIView {
     }
 
     private func makeMutedCard(lines: [String]) -> UIView {
-        let cardView = UIView()
-        let label = UILabel()
-
-        cardView.backgroundColor = BrandColor.surface
-        cardView.layer.cornerRadius = 22
-        cardView.layer.cornerCurve = .continuous
-        applySoftShadow(to: cardView)
-
-        label.text = lines.joined(separator: "\n")
-        label.textColor = BrandColor.textPrimary
-        label.font = BrandFont.regular(15)
-        label.numberOfLines = 0
-
-        cardView.addSubview(label)
-        label.pin(to: cardView, 18)
-
-        return cardView
+        makeShadowCard(
+            containing: makeMultilineLabel(
+                text: lines.joined(separator: "\n"),
+                color: BrandColor.textPrimary,
+                font: BrandFont.regular(15)
+            )
+        )
     }
 
     private func makeReportPreviewCard(lines: [String]) -> UIView {
-        let cardView = UIView()
         let stackView = UIStackView()
-
-        cardView.backgroundColor = BrandColor.surface
-        cardView.layer.cornerRadius = 22
-        cardView.layer.cornerCurve = .continuous
-        applySoftShadow(to: cardView)
 
         stackView.axis = .vertical
         stackView.spacing = 10
 
         lines.forEach { line in
-            if line.isEmpty {
+            switch reportPreviewLineStyle(for: line) {
+            case .separator:
                 stackView.addArrangedSubview(makeReportSeparator())
-            } else if line.hasPrefix("#") {
-                let label = UILabel()
-                label.text = String(line.dropFirst())
-                label.textColor = BrandColor.textPrimary
-                label.font = BrandFont.bold(22)
-                label.numberOfLines = 0
-                stackView.addArrangedSubview(label)
-            } else if line.hasPrefix("- ") {
-                let label = UILabel()
-                label.text = line
-                label.textColor = BrandColor.textPrimary
-                label.font = BrandFont.regular(15)
-                label.numberOfLines = 0
-                stackView.addArrangedSubview(label)
-            } else if !line.contains(":") {
-                let label = UILabel()
-                label.text = line
-                label.textColor = BrandColor.textPrimary
-                label.font = BrandFont.bold(17)
-                label.numberOfLines = 0
-                stackView.addArrangedSubview(label)
-            } else {
+            case .title:
+                stackView.addArrangedSubview(makeReportPreviewLabel(String(line.dropFirst()), font: BrandFont.bold(22)))
+            case .bullet:
+                stackView.addArrangedSubview(makeReportPreviewLabel(line, font: BrandFont.regular(15)))
+            case .section:
+                stackView.addArrangedSubview(makeReportPreviewLabel(line, font: BrandFont.bold(17)))
+            case .keyValue:
                 stackView.addArrangedSubview(makeReportKeyValueRow(line))
             }
         }
 
-        cardView.addSubview(stackView)
-        stackView.pin(to: cardView, 18)
+        return makeShadowCard(containing: stackView)
+    }
 
+    private func reportPreviewLineStyle(for line: String) -> ReportPreviewLineStyle {
+        if line.isEmpty {
+            return .separator
+        }
+
+        if line.hasPrefix("#") {
+            return .title
+        }
+
+        if line.hasPrefix("- ") {
+            return .bullet
+        }
+
+        return line.contains(":") ? .keyValue : .section
+    }
+
+    private func makeReportPreviewLabel(_ text: String, font: UIFont) -> UILabel {
+        makeMultilineLabel(text: text, color: BrandColor.textPrimary, font: font)
+    }
+
+    private func makeMultilineLabel(
+        text: String?,
+        color: UIColor,
+        font: UIFont,
+        textAlignment: NSTextAlignment = .natural
+    ) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.textColor = color
+        label.font = font
+        label.numberOfLines = 0
+        label.textAlignment = textAlignment
+        return label
+    }
+
+    private func makeShadowCard(containing contentView: UIView) -> UIView {
+        let cardView = ShiftWorkspaceShadowCardView()
+        cardView.addSubview(contentView)
+        contentView.pin(to: cardView, 18)
         return cardView
     }
 
     private func makeReportKeyValueRow(_ line: String) -> UIView {
         let rowView = UIView()
-        let keyLabel = UILabel()
-        let valueLabel = UILabel()
         let parts = line.split(separator: ":", maxSplits: 1).map(String.init)
-
-        keyLabel.text = parts.first.map { "\($0):" }
-        keyLabel.textColor = BrandColor.textSecondary
-        keyLabel.font = BrandFont.regular(15)
-        keyLabel.numberOfLines = 0
-
-        valueLabel.text = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        valueLabel.textColor = BrandColor.textPrimary
-        valueLabel.font = BrandFont.demiBold(15)
-        valueLabel.numberOfLines = 0
-        valueLabel.textAlignment = .right
+        let keyLabel = makeMultilineLabel(
+            text: parts.first.map { "\($0):" },
+            color: BrandColor.textSecondary,
+            font: BrandFont.regular(15)
+        )
+        let valueLabel = makeMultilineLabel(
+            text: parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "",
+            color: BrandColor.textPrimary,
+            font: BrandFont.demiBold(15),
+            textAlignment: .right
+        )
 
         rowView.addSubview(keyLabel)
         rowView.addSubview(valueLabel)
@@ -341,14 +346,8 @@ final class ShiftWorkspacePadContentView: UIView {
     private func makeGroupedOperationsCard(_ group: ShiftWorkspace.ReportGroupViewModel) -> UIView {
         // Карточка отчета используется и для сувенирки, и для штрафов. Строки могут
         // быть только информационными или управляемыми через +/-.
-        let cardView = UIView()
         let stackView = UIStackView()
         let titleLabel = UILabel()
-
-        cardView.backgroundColor = BrandColor.surface
-        cardView.layer.cornerRadius = 22
-        cardView.layer.cornerCurve = .continuous
-        applySoftShadow(to: cardView)
 
         stackView.axis = .vertical
         stackView.spacing = 12
@@ -359,12 +358,13 @@ final class ShiftWorkspacePadContentView: UIView {
         stackView.addArrangedSubview(titleLabel)
 
         if group.rows.isEmpty {
-            let label = UILabel()
-            label.text = group.emptyText
-            label.textColor = BrandColor.textSecondary
-            label.font = BrandFont.regular(15)
-            label.numberOfLines = 0
-            stackView.addArrangedSubview(label)
+            stackView.addArrangedSubview(
+                makeMultilineLabel(
+                    text: group.emptyText,
+                    color: BrandColor.textSecondary,
+                    font: BrandFont.regular(15)
+                )
+            )
         } else {
             group.rows.forEach { row in
                 stackView.addArrangedSubview(makeReportRow(row))
@@ -376,19 +376,17 @@ final class ShiftWorkspacePadContentView: UIView {
                 stackView.addArrangedSubview(makeReportSeparator())
             }
 
-            let footerLabel = UILabel()
-            footerLabel.text = footerText
-            footerLabel.textColor = BrandColor.textPrimary
-            footerLabel.font = BrandFont.bold(16)
-            footerLabel.numberOfLines = 0
-            footerLabel.textAlignment = .right
-            stackView.addArrangedSubview(footerLabel)
+            stackView.addArrangedSubview(
+                makeMultilineLabel(
+                    text: footerText,
+                    color: BrandColor.textPrimary,
+                    font: BrandFont.bold(16),
+                    textAlignment: .right
+                )
+            )
         }
 
-        cardView.addSubview(stackView)
-        stackView.pin(to: cardView, 18)
-
-        return cardView
+        return makeShadowCard(containing: stackView)
     }
 
     private func makeReportRow(_ row: ShiftWorkspace.ReportRowViewModel) -> UIView {
@@ -481,16 +479,10 @@ final class ShiftWorkspacePadContentView: UIView {
         let button = UIButton(type: .system)
         button.configuration = configuration
         button.tintColor = BrandColor.textPrimary
+        button.accessibilityLabel = systemName == "minus" ? "Уменьшить количество" : "Увеличить количество"
         button.setWidth(36)
         button.setHeight(36)
         return button
-    }
-
-    private func applySoftShadow(to view: UIView) {
-        view.layer.shadowColor = BrandColor.cgColor(BrandColor.shadow, compatibleWith: traitCollection)
-        view.layer.shadowOpacity = 0.10
-        view.layer.shadowRadius = 18
-        view.layer.shadowOffset = CGSize(width: 0, height: 10)
     }
 
     @objc

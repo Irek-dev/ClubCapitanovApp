@@ -19,7 +19,12 @@ final class ShiftWorkspaceContentFactory {
         var transfer: Money = .zero
     }
 
-    private let moneyFormatter = RubleMoneyFormatter()
+    private struct OperationReportRemainder {
+        var count: Int
+        var total: Money
+    }
+
+    private let formatting = ShiftWorkspaceContentFormatting()
     private let payrollUseCase: BuildShiftPayrollSummaryUseCase
     private let dateProvider: DateProviding
 
@@ -52,7 +57,7 @@ final class ShiftWorkspaceContentFactory {
                 buttons: state.souvenirProducts.enumerated().map { index, product in
                     .init(
                         index: index,
-                        title: "\(product.name) — \(moneyText(product.price))",
+                        title: "\(product.name) — \(formatting.moneyText(product.price))",
                         itemTitle: product.name,
                         unitPrice: product.price,
                         confirmationTitle: "Подтвердите покупку",
@@ -64,7 +69,7 @@ final class ShiftWorkspaceContentFactory {
                     title: "Список сувенирки",
                     emptyText: "Сувенирка пока не продавалась",
                     rows: souvenirReportRows(from: state),
-                    footerText: "Итого: \(moneyText(Money.sum(state.souvenirSales.map(\.totalPrice))))"
+                    footerText: "Итого: \(formatting.moneyText(Money.sum(state.souvenirSales.map(\.totalPrice))))"
                 )
             )
         case .fines:
@@ -73,7 +78,7 @@ final class ShiftWorkspaceContentFactory {
                 buttons: state.fineTemplates.enumerated().map { index, template in
                     .init(
                         index: index,
-                        title: "\(template.title) — \(moneyText(template.amount))",
+                        title: "\(template.title) — \(formatting.moneyText(template.amount))",
                         itemTitle: template.title,
                         unitPrice: template.amount,
                         confirmationTitle: "Подтвердите штраф",
@@ -85,27 +90,27 @@ final class ShiftWorkspaceContentFactory {
                     title: "Список штрафов",
                     emptyText: "Штрафов пока нет",
                     rows: fineReportRows(from: state),
-                    footerText: "Итого: \(moneyText(Money.sum(state.fines.map(\.amount))))"
+                    footerText: "Итого: \(formatting.moneyText(Money.sum(state.fines.map(\.amount))))"
                 )
             )
         case .temporaryReport:
             return .temporaryReport(
                 intro: "Временный отчет смены",
                 infoLines: temporaryOverviewLines(in: state),
-                rentalLines: temporaryRentalLines(in: state),
-                summaryLines: temporaryPaymentLines(in: state),
-                employeeLines: temporaryEmployeeLines(in: state),
+                rentalLines: [],
+                summaryLines: [],
+                employeeLines: [],
                 souvenirReport: .init(
-                    title: "Сувенирка по операциям",
+                    title: "Сувенирка",
                     emptyText: "Продаж сувенирки пока нет",
                     rows: temporarySouvenirRows(in: state),
-                    footerText: "Итого: \(reportMoneyText(Money.sum(state.souvenirSales.map(\.totalPrice))))"
+                    footerText: "Итого: \(formatting.reportMoneyText(Money.sum(state.souvenirSales.map(\.totalPrice))))"
                 ),
                 fineReport: .init(
-                    title: "Штрафы по операциям",
+                    title: "Штрафы",
                     emptyText: "Штрафов пока нет",
                     rows: temporaryFineRows(in: state),
-                    footerText: "Итого: \(reportMoneyText(Money.sum(state.fines.map(\.amount))))"
+                    footerText: "Итого: \(formatting.reportMoneyText(Money.sum(state.fines.map(\.amount))))"
                 )
             )
         case .closeShift:
@@ -120,7 +125,9 @@ final class ShiftWorkspaceContentFactory {
     func makeCloseShiftModalViewModel(from state: ShiftWorkspace.State) -> ShiftWorkspace.CloseShiftModalViewModel {
         return .init(
             totalsLines: finalReportLines(in: state),
-            reportDateText: "Дата отчета: \(formattedReportDate(state.shift.openedAt))",
+            reportDateText: "Дата отчета: \(formatting.formattedReportDate(state.shift.openedAt))",
+            weatherTitle: "Погода",
+            weatherPlaceholder: "Например: ясно, +20",
             equipmentRows: closeEquipmentRows(in: state),
             batteryRows: closeBatteryRows(),
             dismissButtonTitle: "Отмена",
@@ -133,8 +140,8 @@ final class ShiftWorkspaceContentFactory {
             .init(
                 index: index,
                 title: type.name,
-                tariffText: tariffText(for: type.defaultTariff),
-                iconText: rentalIconText(for: type),
+                tariffText: formatting.tariffText(for: type.defaultTariff),
+                iconText: formatting.rentalIconText(for: type),
                 floatingNumbers: floatingNumbers(for: type, in: state)
             )
         }
@@ -148,9 +155,9 @@ final class ShiftWorkspaceContentFactory {
                 .init(
                     id: order.id,
                     title: "Заказ #\(index + 1)",
-                    itemsText: rentalItemsText(for: order, types: state.rentalTypes),
-                    startedAtText: "Старт: \(formattedTime(order.startedAt))",
-                    totalAmountText: "К оплате: \(moneyText(order.totalPrice))",
+                    itemsText: formatting.rentalItemsText(for: order, types: state.rentalTypes),
+                    startedAtText: "Старт: \(formatting.formattedTime(order.startedAt))",
+                    totalAmountText: "К оплате: \(formatting.moneyText(order.totalPrice))",
                     startedAt: order.startedAt,
                     expectedEndAt: order.expectedEndAt,
                     completeButtonTitle: "Завершить"
@@ -172,7 +179,7 @@ final class ShiftWorkspaceContentFactory {
                 .map { "№\($0)" }
                 .joined(separator: ", ")
             return .init(
-                title: "\(rentalIconText(for: type)) \(type.name)",
+                title: "\(formatting.rentalIconText(for: type)) \(type.name)",
                 detail: numbers,
                 amount: "\(quantity) шт.",
                 quantityAdjustment: nil
@@ -196,34 +203,24 @@ final class ShiftWorkspaceContentFactory {
             rows.append(
                 .init(
                     title: product.name,
-                    detail: "\(count) шт. · \(paymentBreakdownText(matchingSales.map { ($0.paymentMethod, $0.totalPrice) }))",
-                    amount: moneyText(total),
+                    detail: "\(count) шт. · \(formatting.paymentBreakdownText(matchingSales.map { ($0.paymentMethod, $0.totalPrice) }))",
+                    amount: formatting.moneyText(total),
                     quantityAdjustment: .init(kind: .souvenir, index: index)
                 )
             )
         }
 
-        var remainingRows: [String: (count: Int, total: Money)] = [:]
+        var remainingRows: [String: OperationReportRemainder] = [:]
         state.souvenirSales
             .filter { !handledSaleIDs.contains($0.id) }
             .forEach { sale in
-                var row = remainingRows[sale.itemName] ?? (count: 0, total: .zero)
+                var row = remainingRows[sale.itemName] ?? OperationReportRemainder(count: 0, total: .zero)
                 row.count += sale.quantity
                 row.total += sale.totalPrice
                 remainingRows[sale.itemName] = row
             }
 
-        rows.append(
-            contentsOf: remainingRows.keys.sorted().compactMap { title in
-                guard let row = remainingRows[title] else { return nil }
-                return .init(
-                    title: title,
-                    detail: "\(row.count) шт.",
-                    amount: moneyText(row.total),
-                    quantityAdjustment: nil
-                )
-            }
-        )
+        rows.append(contentsOf: remainingReportRows(from: remainingRows))
 
         return rows
     }
@@ -243,36 +240,40 @@ final class ShiftWorkspaceContentFactory {
             rows.append(
                 .init(
                     title: template.title,
-                    detail: "\(matchingFines.count) шт. · \(paymentBreakdownText(matchingFines.map { ($0.paymentMethod, $0.amount) }))",
-                    amount: moneyText(total),
+                    detail: "\(matchingFines.count) шт. · \(formatting.paymentBreakdownText(matchingFines.map { ($0.paymentMethod, $0.amount) }))",
+                    amount: formatting.moneyText(total),
                     quantityAdjustment: .init(kind: .fine, index: index)
                 )
             )
         }
 
-        var remainingRows: [String: (count: Int, total: Money)] = [:]
+        var remainingRows: [String: OperationReportRemainder] = [:]
         state.fines
             .filter { !handledFineIDs.contains($0.id) }
             .forEach { fine in
-                var row = remainingRows[fine.title] ?? (count: 0, total: .zero)
+                var row = remainingRows[fine.title] ?? OperationReportRemainder(count: 0, total: .zero)
                 row.count += 1
                 row.total += fine.amount
                 remainingRows[fine.title] = row
             }
 
-        rows.append(
-            contentsOf: remainingRows.keys.sorted().compactMap { title in
-                guard let row = remainingRows[title] else { return nil }
-                return .init(
-                    title: title,
-                    detail: "\(row.count) шт.",
-                    amount: moneyText(row.total),
-                    quantityAdjustment: nil
-                )
-            }
-        )
+        rows.append(contentsOf: remainingReportRows(from: remainingRows))
 
         return rows
+    }
+
+    private func remainingReportRows(
+        from remainingRows: [String: OperationReportRemainder]
+    ) -> [ShiftWorkspace.ReportRowViewModel] {
+        remainingRows.keys.sorted().compactMap { title in
+            guard let row = remainingRows[title] else { return nil }
+            return .init(
+                title: title,
+                detail: "\(row.count) шт.",
+                amount: formatting.moneyText(row.total),
+                quantityAdjustment: nil
+            )
+        }
     }
 
     private func activeRentalOrders(in state: ShiftWorkspace.State) -> [RentalOrder] {
@@ -284,37 +285,7 @@ final class ShiftWorkspaceContentFactory {
     }
 
     private func activeRentalItems(in state: ShiftWorkspace.State) -> [RentalOrderItemSnapshot] {
-        activeRentalOrders(in: state).flatMap { rentalItems(for: $0, types: state.rentalTypes) }
-    }
-
-    private func completedRentalItems(in state: ShiftWorkspace.State) -> [RentalOrderItemSnapshot] {
-        completedRentalOrders(in: state).flatMap { rentalItems(for: $0, types: state.rentalTypes) }
-    }
-
-    private func completedRentalTypeLines(in state: ShiftWorkspace.State) -> [String] {
-        let completedItems = completedRentalItems(in: state)
-        var lines = state.rentalTypes.map { type -> String in
-            let count = completedItems.filter { rentalItem($0, matches: type) }.count
-            return "\(completedRentalLineTitle(for: type)): \(count)"
-        }
-
-        let remainingItems = completedItems.filter { item in
-            !state.rentalTypes.contains { type in rentalItem(item, matches: type) }
-        }
-        let remainingGroups = Dictionary(grouping: remainingItems) { item in
-            completedRentalLineTitle(name: item.rentalTypeNameSnapshot, code: item.rentalTypeCodeSnapshot)
-        }
-
-        lines.append(
-            contentsOf: remainingGroups.keys.sorted().map { title in
-                "\(title): \(remainingGroups[title]?.count ?? 0)"
-            }
-        )
-        return lines
-    }
-
-    private func rentalItem(_ item: RentalOrderItemSnapshot, matches type: RentalType) -> Bool {
-        item.rentalTypeID == type.id || item.rentalTypeNameSnapshot == type.name
+        activeRentalOrders(in: state).flatMap { formatting.rentalItems(for: $0, types: state.rentalTypes) }
     }
 
     private func floatingNumbers(for type: RentalType, in state: ShiftWorkspace.State) -> [Int] {
@@ -328,18 +299,10 @@ final class ShiftWorkspaceContentFactory {
         completedRentalOrders(in: state).reduce(0) { $0 + $1.quantity }
     }
 
-    private func activeRentalQuantity(in state: ShiftWorkspace.State) -> Int {
-        activeRentalOrders(in: state).reduce(0) { $0 + $1.quantity }
-    }
-
-    private func souvenirQuantity(in state: ShiftWorkspace.State) -> Int {
-        state.souvenirSales.reduce(0) { $0 + $1.quantity }
-    }
-
     private func closeEquipmentRows(in state: ShiftWorkspace.State) -> [ShiftWorkspace.CloseShiftManualRowViewModel] {
         state.rentalTypes.map { type in
             .init(
-                title: reportRentalTitle(for: type.name, code: type.code),
+                title: formatting.reportRentalTitle(for: type.name, code: type.code),
                 placeholder: "0"
             )
         }
@@ -366,78 +329,11 @@ final class ShiftWorkspaceContentFactory {
         let total = rentalTotal + souvenirTotal + finesTotal
 
         return [
-            "Дата: \(formattedReportDate(state.shift.openedAt))",
-            "Открыта: \(formattedTime(state.shift.openedAt))",
+            "Дата: \(formatting.formattedReportDate(state.shift.openedAt))",
+            "Открыта: \(formatting.formattedTime(state.shift.openedAt))",
             "Длительность: \(shiftDurationText(from: state.shift))",
-            "Сдано объектов: \(completedRentalQuantity(in: state))",
-            "Продано сувенирки: \(souvenirQuantity(in: state))",
-            "Штрафов: \(state.fines.count)",
-            "Текущая выручка: \(reportMoneyText(total))"
+            "Общая выручка: \(formatting.reportMoneyText(total))"
         ]
-    }
-
-    private func temporaryPaymentLines(in state: ShiftWorkspace.State) -> [String] {
-        let payments = paymentTotals(in: state)
-
-        return [
-            "Оплата",
-            "Наличка: \(reportMoneyText(payments.cash))",
-            "Карта: \(reportMoneyText(payments.card))",
-            "Перевод: \(reportMoneyText(payments.transfer))"
-        ]
-    }
-
-    private func temporaryEmployeeLines(in state: ShiftWorkspace.State) -> [String] {
-        let participants = state.shift.participants.sorted { lhs, rhs in
-            if lhs.joinedAt != rhs.joinedAt {
-                return lhs.joinedAt < rhs.joinedAt
-            }
-            return lhs.displayNameSnapshot < rhs.displayNameSnapshot
-        }
-
-        guard !participants.isEmpty else {
-            return [
-                "Сотрудники",
-                "Сотрудников в смене нет"
-            ]
-        }
-
-        return ["Сотрудники"] + participants.map { participant in
-            let exitText = participant.leftAt.map {
-                "ушел в \(formattedTime($0))"
-            } ?? "еще на смене"
-            return "\(participant.displayNameSnapshot) пришел в \(formattedTime(participant.joinedAt)), \(exitText)"
-        }
-    }
-
-    private func temporaryRentalLines(in state: ShiftWorkspace.State) -> [String] {
-        let orders = state.rentalOrders.sorted { lhs, rhs in
-            lhs.startedAt < rhs.startedAt
-        }
-
-        guard !orders.isEmpty else {
-            return ["Прокатов пока нет"]
-        }
-
-        return ["Прокат по операциям"] + orders.enumerated().map { index, order in
-            let items = rentalItemsText(for: order, types: state.rentalTypes)
-            let statusText: String
-            let paymentText: String
-
-            switch order.status {
-            case .active:
-                statusText = "плавает до \(formattedTime(order.expectedEndAt))"
-                paymentText = "оплата при сдаче"
-            case .completed:
-                statusText = "сдано \(formattedTime(order.finishedAt ?? order.startedAt))"
-                paymentText = order.paymentMethod.workspaceTitle
-            case .canceled:
-                statusText = "отменено \(formattedTime(order.canceledAt ?? order.startedAt))"
-                paymentText = order.paymentMethod.workspaceTitle
-            }
-
-            return "\(index + 1). \(formattedTime(order.startedAt)) · \(statusText) · \(items) · \(reportMoneyText(order.totalPrice)) · \(paymentText)"
-        }
     }
 
     private func temporarySouvenirRows(in state: ShiftWorkspace.State) -> [ShiftWorkspace.ReportRowViewModel] {
@@ -446,8 +342,8 @@ final class ShiftWorkspaceContentFactory {
             .map { sale in
                 .init(
                     title: sale.itemName,
-                    detail: "\(formattedTime(sale.soldAt)) · \(sale.quantity) шт. · \(sale.paymentMethod.workspaceTitle)",
-                    amount: reportMoneyText(sale.totalPrice),
+                    detail: "\(formatting.formattedTime(sale.soldAt)) · \(sale.quantity) шт. · \(sale.paymentMethod.workspaceTitle)",
+                    amount: formatting.reportMoneyText(sale.totalPrice),
                     quantityAdjustment: nil
                 )
             }
@@ -459,8 +355,8 @@ final class ShiftWorkspaceContentFactory {
             .map { fine in
                 .init(
                     title: fine.title,
-                    detail: "\(formattedTime(fine.createdAt)) · 1 шт. · \(fine.paymentMethod.workspaceTitle)",
-                    amount: reportMoneyText(fine.amount),
+                    detail: "\(formatting.formattedTime(fine.createdAt)) · 1 шт. · \(fine.paymentMethod.workspaceTitle)",
+                    amount: formatting.reportMoneyText(fine.amount),
                     quantityAdjustment: nil
                 )
             }
@@ -471,14 +367,14 @@ final class ShiftWorkspaceContentFactory {
             RentalReportBreakdownRow(
                 typeID: type.id,
                 typeName: type.name,
-                title: reportRentalTitle(for: type.name, code: type.code),
+                title: formatting.reportRentalTitle(for: type.name, code: type.code),
                 count: 0,
                 amount: .zero
             )
         }
 
         completedRentalOrders(in: state).forEach { order in
-            let items = rentalItems(for: order, types: state.rentalTypes)
+            let items = formatting.rentalItems(for: order, types: state.rentalTypes)
 
             if items.isEmpty {
                 addRentalReport(
@@ -529,7 +425,7 @@ final class ShiftWorkspaceContentFactory {
             RentalReportBreakdownRow(
                 typeID: typeID,
                 typeName: typeName,
-                title: reportRentalTitle(for: typeName, code: code),
+                title: formatting.reportRentalTitle(for: typeName, code: code),
                 count: count,
                 amount: amount
             )
@@ -556,25 +452,25 @@ final class ShiftWorkspaceContentFactory {
 
         var lines = [
             "#Итоговый отчет",
-            "Дата: \(formattedReportDate(state.shift.openedAt))",
+            "Дата: \(formatting.formattedReportDate(state.shift.openedAt))",
             "Точка: \(state.shift.point.name)",
-            "Открыта: \(formattedTime(state.shift.openedAt))",
+            "Открыта: \(formatting.formattedTime(state.shift.openedAt))",
             "Погода: не заполнено",
-            "Общая выручка: \(reportMoneyText(total))",
+            "Общая выручка: \(formatting.reportMoneyText(total))",
             "",
             "Прокат",
             "Сдано объектов: \(completedRentalQuantity(in: state))",
-            "Выручка по сдачам: \(reportMoneyText(rentalTotal))"
+            "Выручка по сдачам: \(formatting.reportMoneyText(rentalTotal))"
         ]
         lines += rentalRows.map { row in
-            "\(row.title): \(row.count) - \(reportMoneyText(row.amount))"
+            "\(row.title): \(row.count) - \(formatting.reportMoneyText(row.amount))"
         }
         lines += [
             "",
             "Оплата",
-            "Наличка: \(reportMoneyText(payments.cash))",
-            "Карта: \(reportMoneyText(payments.card))",
-            "Перевод: \(reportMoneyText(payments.transfer))",
+            "Наличка: \(formatting.reportMoneyText(payments.cash))",
+            "Карта: \(formatting.reportMoneyText(payments.card))",
+            "Перевод: \(formatting.reportMoneyText(payments.transfer))",
             "Пришло по фишкам: 0",
             "",
             "Сувенирка"
@@ -590,12 +486,7 @@ final class ShiftWorkspaceContentFactory {
         ]
         lines += payrollLines(in: state)
         lines += [
-            "",
-            "Рабочее оборудование",
-            "Статус: заполняется вручную при закрытии смены",
-            "",
-            "Батарейки",
-            "Статус: заполняются вручную при закрытии смены"
+            ""
         ]
         return lines
     }
@@ -603,16 +494,16 @@ final class ShiftWorkspaceContentFactory {
     private func payrollLines(in state: ShiftWorkspace.State) -> [String] {
         guard let payrollSummary = payrollSummary(in: state) else {
             return [
-                "ЗП общее: \(reportMoneyText(.zero))"
+                "ЗП общее: \(formatting.reportMoneyText(.zero))"
             ]
         }
 
         let employeeLines = payrollSummary.rows.map { row in
-            "\(shortEmployeeName(row.employeeName)): \(reportMoneyText(row.amount))"
+            "\(formatting.shortEmployeeName(row.employeeName)): \(formatting.reportMoneyText(row.amount))"
         }
 
         return [
-            "ЗП общее: \(reportMoneyText(payrollSummary.totalAmount))"
+            "ЗП общее: \(formatting.reportMoneyText(payrollSummary.totalAmount))"
         ] + employeeLines
     }
 
@@ -645,65 +536,51 @@ final class ShiftWorkspaceContentFactory {
         return totals
     }
 
-    private func paymentBreakdownText(_ rows: [(PaymentMethod, Money)]) -> String {
-        var amountsByMethod: [PaymentMethod: Money] = [:]
-
-        rows.forEach { method, amount in
-            amountsByMethod[method, default: .zero] += amount
-        }
-
-        let parts = PaymentMethod.workspaceSelectionOrder.compactMap { method -> String? in
-            guard let amount = amountsByMethod[method], amount != .zero else {
-                return nil
-            }
-            return "\(method.workspaceShortTitle): \(reportMoneyText(amount))"
-        }
-
-        return parts.isEmpty ? "оплата не указана" : parts.joined(separator: ", ")
-    }
-
     private func souvenirFinalReportLines(in state: ShiftWorkspace.State) -> [String] {
-        let rows = groupedOperationRows(
+        finalOperationReportLines(
             records: state.souvenirSales,
             title: \.itemName,
             amount: \.totalPrice,
-            count: \.quantity
+            count: \.quantity,
+            emptyText: "Продаж сувенирки нет"
         )
-        let total = Money.sum(state.souvenirSales.map(\.totalPrice))
-
-        guard !rows.isEmpty else {
-            return [
-                "Продаж сувенирки нет",
-                "Итого: \(reportMoneyText(total))"
-            ]
-        }
-
-        return rows.map { row in
-            "- \(row.title) — \(row.count) — \(reportMoneyText(row.amount))"
-        } + [
-            "Итого: \(reportMoneyText(total))"
-        ]
     }
 
     private func fineFinalReportLines(in state: ShiftWorkspace.State) -> [String] {
-        let rows = groupedOperationRows(
+        finalOperationReportLines(
             records: state.fines,
             title: \.title,
-            amount: \.amount
+            amount: \.amount,
+            emptyText: "Штрафов нет"
         )
-        let total = Money.sum(state.fines.map(\.amount))
+    }
+
+    private func finalOperationReportLines<Record>(
+        records: [Record],
+        title: KeyPath<Record, String>,
+        amount: KeyPath<Record, Money>,
+        count: KeyPath<Record, Int>? = nil,
+        emptyText: String
+    ) -> [String] {
+        let rows = groupedOperationRows(
+            records: records,
+            title: title,
+            amount: amount,
+            count: count
+        )
+        let total = Money.sum(records.map { $0[keyPath: amount] })
 
         guard !rows.isEmpty else {
             return [
-                "Штрафов нет",
-                "Итого: \(reportMoneyText(total))"
+                emptyText,
+                "Итого: \(formatting.reportMoneyText(total))"
             ]
         }
 
         return rows.map { row in
-            "- \(row.title) — \(row.count) — \(reportMoneyText(row.amount))"
+            "- \(row.title) — \(row.count) — \(formatting.reportMoneyText(row.amount))"
         } + [
-            "Итого: \(reportMoneyText(total))"
+            "Итого: \(formatting.reportMoneyText(total))"
         ]
     }
 
@@ -730,167 +607,8 @@ final class ShiftWorkspaceContentFactory {
         }
     }
 
-    private func reportRentalTitle(for name: String, code: String) -> String {
-        switch code {
-        case "duck":
-            return "Уточки"
-        case "sail":
-            return "Парусники"
-        case "fireboat":
-            return "Пожарники"
-        case "boat":
-            return "Катера"
-        default:
-            return name
-        }
-    }
-
-    private func shortEmployeeName(_ fullName: String) -> String {
-        let parts = fullName.split(separator: " ").map(String.init)
-        guard parts.count > 1 else {
-            return fullName
-        }
-        return parts[1]
-    }
-
     private func shiftDurationText(from shift: Shift) -> String {
         let minutes = max(0, Int(dateProvider.now.timeIntervalSince(shift.openedAt) / 60))
         return "\(minutes / 60) ч \(minutes % 60) мин"
-    }
-
-    private func formattedReportDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateFormat = "dd.MM.yyyy"
-        return formatter.string(from: date)
-    }
-
-    private func formattedTime(_ date: Date) -> String {
-        AppDateFormatter.time(date)
-    }
-
-    private func rentalIconText(for type: RentalType) -> String {
-        switch type.code {
-        case "duck":
-            return "🦆"
-        case "sail":
-            return "⛵"
-        case "boat":
-            return "🛥️"
-        case "fireboat":
-            return "🚤"
-        default:
-            return "🛶"
-        }
-    }
-
-    private func rentalIconText(for item: RentalOrderItemSnapshot, types: [RentalType]) -> String {
-        if let type = types.first(where: { $0.id == item.rentalTypeID || $0.name == item.rentalTypeNameSnapshot }) {
-            return rentalIconText(for: type)
-        }
-
-        switch item.rentalTypeCodeSnapshot {
-        case "duck":
-            return "🦆"
-        case "sail":
-            return "⛵"
-        case "boat":
-            return "🛥️"
-        case "fireboat":
-            return "🚤"
-        default:
-            return "🛶"
-        }
-    }
-
-    private func rentalItemsText(for order: RentalOrder, types: [RentalType]) -> String {
-        rentalItems(for: order, types: types)
-            .map { item in
-                let tariff = tariffText(for: item)
-                return "\(rentalIconText(for: item, types: types)) \(item.rentalTypeNameSnapshot) №\(item.displayNumber) · \(tariff)"
-            }
-            .joined(separator: ", ")
-    }
-
-    private func rentalItems(for order: RentalOrder, types: [RentalType]) -> [RentalOrderItemSnapshot] {
-        if !order.rentedItemsSnapshot.isEmpty {
-            return order.rentedItemsSnapshot
-        }
-
-        let fallbackType = types.first { $0.id == order.rentalTypeID || $0.name == order.rentalTypeNameSnapshot }
-        return order.rentedAssetNumbersSnapshot.compactMap { numberText in
-            let digits = numberText.filter(\.isNumber)
-            guard let number = Int(digits) else { return nil }
-
-            return .init(
-                rentalTypeID: order.rentalTypeID,
-                rentalTypeNameSnapshot: order.rentalTypeNameSnapshot,
-                rentalTypeCodeSnapshot: fallbackType?.code ?? "",
-                displayNumber: number
-            )
-        }
-    }
-
-    private func moneyText(_ money: Money) -> String {
-        moneyFormatter.string(from: money, includesCurrencySymbol: true)
-    }
-
-    private func reportMoneyText(_ money: Money) -> String {
-        let sign = money.kopecks < 0 ? "-" : ""
-        let absoluteKopecks = abs(money.kopecks)
-        let rubles = absoluteKopecks / 100
-        let kopecks = absoluteKopecks % 100
-        let groupedRubles = groupedThousands(rubles)
-
-        guard kopecks > 0 else {
-            return "\(sign)\(groupedRubles)₽"
-        }
-
-        return String(format: "%@%@.%02d₽", sign, groupedRubles, kopecks)
-    }
-
-    private func groupedThousands(_ value: Int) -> String {
-        let digits = String(value)
-        var groups: [String] = []
-        var endIndex = digits.endIndex
-
-        while endIndex > digits.startIndex {
-            let startIndex = digits.index(endIndex, offsetBy: -3, limitedBy: digits.startIndex) ?? digits.startIndex
-            groups.append(String(digits[startIndex..<endIndex]))
-            endIndex = startIndex
-        }
-
-        return groups.reversed().joined(separator: ".")
-    }
-
-    private func tariffText(for tariff: RentalTariff?) -> String {
-        guard let tariff else { return "тариф не настроен" }
-        return "\(moneyText(tariff.price)) за \(tariff.title)"
-    }
-
-    private func tariffText(for item: RentalOrderItemSnapshot) -> String {
-        guard let title = item.tariffTitleSnapshot, let price = item.tariffPriceSnapshot else {
-            return "тариф не сохранен"
-        }
-        return "\(moneyText(price)) за \(title)"
-    }
-
-    private func completedRentalLineTitle(for type: RentalType) -> String {
-        completedRentalLineTitle(name: type.name, code: type.code)
-    }
-
-    private func completedRentalLineTitle(name: String, code: String) -> String {
-        switch code {
-        case "duck":
-            return "Уточек сдано"
-        case "sail":
-            return "Парусников сдано"
-        case "boat":
-            return "Катеров сдано"
-        case "fireboat":
-            return "Пожарников сдано"
-        default:
-            return "\(name) сдано"
-        }
     }
 }

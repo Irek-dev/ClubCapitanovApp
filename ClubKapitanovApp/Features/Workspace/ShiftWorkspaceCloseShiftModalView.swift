@@ -4,10 +4,12 @@ import UIKit
 ///
 /// Модалка показывает итоговый отчет, собирает ручные остатки оборудования и батареек,
 /// а затем передает готовый `ShiftCloseReportManualInput` во внешний VIP-flow.
-final class ShiftWorkspaceCloseShiftModalView: UIView {
+final class ShiftWorkspaceCloseShiftModalView: UIView, UITextFieldDelegate {
     var onDismiss: (() -> Void)?
     var onConfirm: ((ShiftCloseReportManualInput) -> Void)?
 
+    private let dialogView = ShiftWorkspaceShadowCardView(cornerRadius: 26)
+    private let weatherTextField = UITextField()
     private var equipmentInputRows: [CloseShiftCountInputRowView] = []
     private var batteryInputRows: [CloseShiftCountInputRowView] = []
 
@@ -21,8 +23,12 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        applyWeatherTextFieldStyle()
+    }
+
     private func configureUI(viewModel: ShiftWorkspace.CloseShiftModalViewModel) {
-        let dialogView = UIView()
         let titleLabel = UILabel()
         let scrollView = UIScrollView()
         let stackView = UIStackView()
@@ -31,11 +37,6 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
         let closeButton = UIButton(type: .system)
 
         backgroundColor = BrandColor.modalOverlay
-
-        dialogView.backgroundColor = BrandColor.surface
-        dialogView.layer.cornerRadius = 26
-        dialogView.layer.cornerCurve = .continuous
-        applySoftShadow(to: dialogView)
 
         titleLabel.text = "Итоговый отчет"
         titleLabel.textColor = BrandColor.textPrimary
@@ -72,6 +73,7 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
 
         stackView.addArrangedSubview(makeDateBlock(viewModel.reportDateText))
         stackView.addArrangedSubview(makeReportTextBlock(lines: viewModel.totalsLines))
+        stackView.addArrangedSubview(makeWeatherInputBlock(viewModel: viewModel))
         stackView.addArrangedSubview(makeManualInputCard(
             title: "Рабочее оборудование",
             rows: viewModel.equipmentRows,
@@ -107,14 +109,8 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
     }
 
     private func makeReportTextBlock(lines: [String]) -> UIView {
-        let containerView = UIView()
+        let containerView = ShiftWorkspaceBorderedContainerView(cornerRadius: 18)
         let bodyLabel = UILabel()
-
-        containerView.backgroundColor = BrandColor.surfaceMuted
-        containerView.layer.cornerRadius = 18
-        containerView.layer.cornerCurve = .continuous
-        containerView.layer.borderWidth = 1
-        containerView.layer.borderColor = BrandColor.cgColor(BrandColor.fieldBorder, compatibleWith: traitCollection)
 
         bodyLabel.text = lines.joined(separator: "\n")
         bodyLabel.textColor = BrandColor.textPrimary
@@ -128,14 +124,8 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
     }
 
     private func makeDateBlock(_ text: String) -> UIView {
-        let containerView = UIView()
+        let containerView = ShiftWorkspaceBorderedContainerView(cornerRadius: 14)
         let label = UILabel()
-
-        containerView.backgroundColor = BrandColor.surfaceMuted
-        containerView.layer.cornerRadius = 14
-        containerView.layer.cornerCurve = .continuous
-        containerView.layer.borderWidth = 1
-        containerView.layer.borderColor = BrandColor.cgColor(BrandColor.fieldBorder, compatibleWith: traitCollection)
 
         label.text = text
         label.textColor = BrandColor.textPrimary
@@ -148,20 +138,46 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
         return containerView
     }
 
+    private func makeWeatherInputBlock(viewModel: ShiftWorkspace.CloseShiftModalViewModel) -> UIView {
+        let containerView = ShiftWorkspaceBorderedContainerView(cornerRadius: 18)
+        let stackView = UIStackView()
+        let titleLabel = UILabel()
+
+        stackView.axis = .vertical
+        stackView.spacing = 10
+
+        titleLabel.text = viewModel.weatherTitle
+        titleLabel.textColor = BrandColor.textPrimary
+        titleLabel.font = BrandFont.bold(18)
+        titleLabel.numberOfLines = 0
+
+        weatherTextField.placeholder = viewModel.weatherPlaceholder
+        weatherTextField.textColor = BrandColor.textPrimary
+        weatherTextField.tintColor = BrandColor.accentOrange
+        weatherTextField.font = BrandFont.demiBold(16)
+        applyWeatherTextFieldStyle()
+        weatherTextField.clearButtonMode = .whileEditing
+        weatherTextField.returnKeyType = .done
+        weatherTextField.delegate = self
+        weatherTextField.setHeight(44)
+
+        stackView.addArrangedSubview(titleLabel)
+        stackView.addArrangedSubview(weatherTextField)
+
+        containerView.addSubview(stackView)
+        stackView.pin(to: containerView, 16)
+
+        return containerView
+    }
+
     private func makeManualInputCard(
         title: String,
         rows: [ShiftWorkspace.CloseShiftManualRowViewModel],
         storage: inout [CloseShiftCountInputRowView]
     ) -> UIView {
-        let cardView = UIView()
+        let cardView = ShiftWorkspaceBorderedContainerView(cornerRadius: 18)
         let stackView = UIStackView()
         let titleLabel = UILabel()
-
-        cardView.backgroundColor = BrandColor.surfaceMuted
-        cardView.layer.cornerRadius = 18
-        cardView.layer.cornerCurve = .continuous
-        cardView.layer.borderWidth = 1
-        cardView.layer.borderColor = BrandColor.cgColor(BrandColor.fieldBorder, compatibleWith: traitCollection)
 
         stackView.axis = .vertical
         stackView.spacing = 10
@@ -196,11 +212,13 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
         button.setHeight(44)
     }
 
-    private func applySoftShadow(to view: UIView) {
-        view.layer.shadowColor = BrandColor.cgColor(BrandColor.shadow, compatibleWith: traitCollection)
-        view.layer.shadowOpacity = 0.10
-        view.layer.shadowRadius = 18
-        view.layer.shadowOffset = CGSize(width: 0, height: 10)
+    private func applyWeatherTextFieldStyle() {
+        ShiftWorkspaceLayerStyling.applyBorderedSurface(
+            to: weatherTextField,
+            compatibleWith: traitCollection,
+            cornerRadius: 10,
+            fillColor: BrandColor.surface
+        )
     }
 
     @objc
@@ -222,8 +240,12 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
         }
         let hasBatteryInput = batteryInputRows.contains { $0.hasEnteredValue }
         let batteryTotal = batteryRows.reduce(0) { $0 + $1.count }
+        let weatherNote = weatherTextField.text?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
 
         return ShiftCloseReportManualInput(
+            weatherNote: weatherNote,
             equipmentSnapshot: ShiftEquipmentSnapshot(
                 workingRows: equipmentRows,
                 discardedRows: [],
@@ -236,6 +258,17 @@ final class ShiftWorkspaceCloseShiftModalView: UIView {
                 notes: nil
             )
         )
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        return true
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
@@ -264,6 +297,11 @@ private final class CloseShiftCountInputRowView: UIView, UITextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        applyTextFieldStyle()
+    }
+
     private func configureUI(viewModel: ShiftWorkspace.CloseShiftManualRowViewModel) {
         let titleLabel = UILabel()
 
@@ -278,11 +316,7 @@ private final class CloseShiftCountInputRowView: UIView, UITextFieldDelegate {
         textField.textColor = BrandColor.textPrimary
         textField.tintColor = BrandColor.accentOrange
         textField.font = BrandFont.demiBold(16)
-        textField.backgroundColor = BrandColor.surface
-        textField.layer.cornerRadius = 10
-        textField.layer.cornerCurve = .continuous
-        textField.layer.borderWidth = 1
-        textField.layer.borderColor = BrandColor.cgColor(BrandColor.fieldBorder, compatibleWith: traitCollection)
+        applyTextFieldStyle()
         textField.delegate = self
 
         addSubview(titleLabel)
@@ -298,6 +332,15 @@ private final class CloseShiftCountInputRowView: UIView, UITextFieldDelegate {
         textField.pinBottom(to: bottomAnchor)
         textField.setWidth(96)
         textField.setHeight(42)
+    }
+
+    private func applyTextFieldStyle() {
+        ShiftWorkspaceLayerStyling.applyBorderedSurface(
+            to: textField,
+            compatibleWith: traitCollection,
+            cornerRadius: 10,
+            fillColor: BrandColor.surface
+        )
     }
 
     func textField(

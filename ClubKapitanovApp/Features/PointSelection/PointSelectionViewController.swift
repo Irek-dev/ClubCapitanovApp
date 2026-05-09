@@ -112,10 +112,11 @@ extension PointSelectionViewController: UITableViewDataSource {
     ) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: PointCell.reuseIdentifier, for: indexPath)
 
-        if let pointCell = cell as? PointCell {
-            pointCell.configure(with: points[indexPath.row])
+        guard points.indices.contains(indexPath.row), let pointCell = cell as? PointCell else {
+            return cell
         }
 
+        pointCell.configure(with: points[indexPath.row])
         return cell
     }
 }
@@ -123,6 +124,7 @@ extension PointSelectionViewController: UITableViewDataSource {
 extension PointSelectionViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard points.indices.contains(indexPath.row) else { return }
         interactor.selectPoint(at: indexPath.row)
     }
 }
@@ -148,6 +150,14 @@ private final class PointCell: UITableViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        containerView.layer.shadowPath = UIBezierPath(
+            roundedRect: containerView.bounds,
+            cornerRadius: containerView.layer.cornerRadius
+        ).cgPath
     }
 
     func configure(with point: PointSelection.PointViewModel) {
@@ -176,6 +186,7 @@ private final class PointCell: UITableViewCell {
 
         arrowImageView.tintColor = BrandColor.textSecondary.withAlphaComponent(0.7)
         arrowImageView.contentMode = .scaleAspectFit
+        arrowImageView.isAccessibilityElement = false
 
         contentView.addSubview(containerView)
         containerView.addSubview(titleLabel)
