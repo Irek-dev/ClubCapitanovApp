@@ -19,4 +19,11 @@ enum Login {
             let clearPINField: Bool
         }
     }
+
+    enum AdminSubmit {
+        struct Request {
+            let pinCode: String
+            let password: String
+        }
+    }
 }

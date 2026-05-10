@@ -31,10 +31,12 @@ enum InMemoryFixtures {
     ]
 
     static let users: [User] = [
+        User(pinCode: "0000", firstName: "Админ", lastName: "Клуба", role: .admin),
         User(pinCode: "1111", firstName: "Ирек", lastName: "Шакиров", role: .staff),
-        User(pinCode: "2222", firstName: "Амир", lastName: "Ибрагимов", role: .staff),
+        User(pinCode: "2222", firstName: "Амир", lastName: "Хазеев", role: .staff),
+        User(pinCode: "3333", firstName: "Виталий", lastName: "Козаченко", role: .staff),
         User(
-            pinCode: "3333",
+            pinCode: "7777",
             firstName: "Марина",
             lastName: "Управляева",
             role: .manager,

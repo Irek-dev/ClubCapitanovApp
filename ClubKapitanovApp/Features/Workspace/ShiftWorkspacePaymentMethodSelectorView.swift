@@ -12,8 +12,9 @@ final class ShiftWorkspacePaymentMethodSelectorView: UIView {
         }
     }
 
-    init(tintColor: UIColor) {
+    init(tintColor: UIColor, selectedPaymentMethod: PaymentMethod = .card) {
         self.accentColor = tintColor
+        self.selectedPaymentMethod = selectedPaymentMethod
         super.init(frame: .zero)
         configureUI()
         updateButtons()

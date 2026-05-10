@@ -8,11 +8,11 @@ extension PaymentMethod {
     var workspaceTitle: String {
         switch self {
         case .cash:
-            return "Наличка"
+            return "Наличные"
         case .card:
             return "Карта"
         case .qr:
-            return "Перевод"
+            return "Перевод / QR"
         }
     }
 

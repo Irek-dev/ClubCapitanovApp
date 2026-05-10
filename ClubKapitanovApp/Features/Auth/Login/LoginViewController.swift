@@ -25,10 +25,13 @@ final class LoginViewController: UIViewController {
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let pinField = UITextField()
+    private let passwordField = UITextField()
     private let loginButton = UIButton(type: .system)
+    private let adminModeButton = UIButton(type: .system)
     private let messageLabel = UILabel()
     private var scrollViewBottomConstraint: NSLayoutConstraint?
     private var isKeyboardVisible = false
+    private var isAdminMode = false
     private var keyboardObserverTokens: [NSObjectProtocol] = []
 
     // MARK: - Init
@@ -85,7 +88,9 @@ final class LoginViewController: UIViewController {
         configureBadge()
         configureLabels()
         configurePINField()
+        configurePasswordField()
         configureButton()
+        configureAdminModeButton()
         configureMessageLabel()
         configureTapToDismissKeyboard()
         setupConstraints()
@@ -171,6 +176,25 @@ final class LoginViewController: UIViewController {
         pinField.setHeight(58)
     }
 
+    private func configurePasswordField() {
+        passwordField.placeholder = "Пароль администратора"
+        passwordField.textAlignment = .center
+        passwordField.font = BrandFont.demiBold(20)
+        passwordField.textColor = BrandColor.textPrimary
+        passwordField.tintColor = BrandColor.accentOrange
+        passwordField.backgroundColor = BrandColor.surfaceMuted
+        passwordField.layer.cornerRadius = 18
+        passwordField.layer.cornerCurve = .continuous
+        passwordField.layer.borderWidth = 1
+        passwordField.layer.borderColor = BrandColor.cgColor(BrandColor.fieldBorder, compatibleWith: traitCollection)
+        passwordField.isSecureTextEntry = true
+        passwordField.isHidden = true
+        passwordField.delegate = self
+
+        contentStackView.addArrangedSubview(passwordField)
+        passwordField.setHeight(58)
+    }
+
     private func configureButton() {
         var configuration = UIButton.Configuration.filled()
         configuration.title = "Войти"
@@ -185,6 +209,23 @@ final class LoginViewController: UIViewController {
 
         contentStackView.addArrangedSubview(loginButton)
         loginButton.setHeight(56)
+    }
+
+    private func configureAdminModeButton() {
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = "Войти как администратор"
+        configuration.baseForegroundColor = BrandColor.primaryBlue
+        configuration.contentInsets = .init(top: 8, leading: 12, bottom: 8, trailing: 12)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = BrandFont.demiBold(15)
+            return outgoing
+        }
+
+        adminModeButton.configuration = configuration
+        adminModeButton.addTarget(self, action: #selector(didTapAdminModeButton), for: .touchUpInside)
+
+        contentStackView.addArrangedSubview(adminModeButton)
     }
 
     private func configureMessageLabel() {
@@ -281,8 +322,9 @@ final class LoginViewController: UIViewController {
             self.view.layoutIfNeeded()
 
             if self.isKeyboardVisible {
-                let pinFieldRect = self.pinField
-                    .convert(self.pinField.bounds, to: self.contentView)
+                let focusedField = self.passwordField.isFirstResponder ? self.passwordField : self.pinField
+                let pinFieldRect = focusedField
+                    .convert(focusedField.bounds, to: self.contentView)
                     .insetBy(dx: 0, dy: -18)
                 self.scrollView.scrollRectToVisible(pinFieldRect, animated: false)
             } else {
@@ -295,12 +337,40 @@ final class LoginViewController: UIViewController {
 
     @objc
     private func didTapLoginButton() {
-        interactor.submit(request: .init(pinCode: pinField.text ?? ""))
+        if isAdminMode {
+            interactor.submitAdmin(
+                request: .init(
+                    pinCode: pinField.text ?? "",
+                    password: passwordField.text ?? ""
+                )
+            )
+        } else {
+            interactor.submit(request: .init(pinCode: pinField.text ?? ""))
+        }
+    }
+
+    @objc
+    private func didTapAdminModeButton() {
+        isAdminMode.toggle()
+        passwordField.text = nil
+        messageLabel.isHidden = true
+        messageLabel.text = nil
+        applyLoginMode()
     }
 
     @objc
     private func didTapOutsideKeyboard() {
         view.endEditing(true)
+    }
+}
+
+private extension LoginViewController {
+    func applyLoginMode() {
+        titleLabel.text = isAdminMode ? "Админ-панель" : "Вход в смену"
+        subtitleLabel.text = isAdminMode ? "Введите PIN администратора и пароль" : "Введите PIN"
+        passwordField.isHidden = !isAdminMode
+        loginButton.configuration?.title = isAdminMode ? "Открыть админ-панель" : "Войти"
+        adminModeButton.configuration?.title = isAdminMode ? "Вернуться ко входу в смену" : "Войти как администратор"
     }
 }
 
@@ -338,6 +408,11 @@ extension LoginViewController: UITextFieldDelegate {
         }
 
         let newText = currentText.replacingCharacters(in: swiftRange, with: string)
+
+        if textField === passwordField {
+            return newText.count <= 24
+        }
+
         return newText.count <= 4 && newText.allSatisfy(\.isNumber)
     }
 }

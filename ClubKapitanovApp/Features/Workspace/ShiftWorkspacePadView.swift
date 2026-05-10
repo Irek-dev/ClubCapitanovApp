@@ -9,8 +9,10 @@ protocol ShiftWorkspacePadViewDelegate: AnyObject {
     func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didSelect section: ShiftWorkspaceSection)
     func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didSubmitParticipantPIN pinCode: String)
     func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didRemoveParticipant id: UUID)
-    func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didSubmitRentalOrderItems selections: [ShiftWorkspace.RentalOrderItemInput])
-    func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didCompleteRentalOrder id: UUID, paymentMethod: PaymentMethod)
+    func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didSubmitRentalOrderItems selections: [ShiftWorkspace.RentalOrderItemInput], paymentMethod: PaymentMethod)
+    func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didEditRentalOrder id: UUID, selections: [ShiftWorkspace.RentalOrderItemInput], paymentMethod: PaymentMethod)
+    func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didCompleteRentalOrder id: UUID)
+    func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didExtendRentalOrder id: UUID)
     func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didConfirmSouvenirAt index: Int, quantity: Int, paymentMethod: PaymentMethod)
     func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didConfirmFineAt index: Int, quantity: Int, paymentMethod: PaymentMethod)
     func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didIncreaseSouvenirQuantityAt index: Int)
@@ -29,7 +31,6 @@ final class ShiftWorkspacePadView: UIView {
     private var operationOverlayView: ShiftWorkspaceOperationConfirmModalView?
     private var addParticipantOverlayView: ShiftWorkspaceAddParticipantModalView?
     private var rentalOrderOverlayView: ShiftWorkspaceRentalOrderModalView?
-    private var rentalPaymentOverlayView: ShiftWorkspaceRentalPaymentModalView?
     private var toastView: UIView?
     private var closeShiftModalViewModel: ShiftWorkspace.CloseShiftModalViewModel?
 
@@ -143,21 +144,26 @@ final class ShiftWorkspacePadView: UIView {
             delegate?.shiftWorkspacePadView(self, didSelect: section)
         }
 
-        sidebarView.onAddParticipant = { [weak self] in
-            self?.showAddParticipantModal()
-        }
-
-        sidebarView.onRemoveParticipant = { [weak self] id in
-            guard let self else { return }
-            delegate?.shiftWorkspacePadView(self, didRemoveParticipant: id)
-        }
-
         contentView.onTapCreateRentalOrder = { [weak self] rentalTypes in
             self?.showRentalOrderModal(rentalTypes: rentalTypes)
         }
 
+        contentView.onTapAddParticipant = { [weak self] in
+            self?.showAddParticipantModal()
+        }
+
+        contentView.onRemoveParticipant = { [weak self] id in
+            guard let self else { return }
+            delegate?.shiftWorkspacePadView(self, didRemoveParticipant: id)
+        }
+
         contentView.onCompleteRentalOrder = { [weak self] order in
-            self?.showRentalPaymentModal(order: order)
+            guard let self else { return }
+            delegate?.shiftWorkspacePadView(self, didCompleteRentalOrder: order.id)
+        }
+
+        contentView.onEditRentalOrder = { [weak self] order, rentalTypes in
+            self?.showEditRentalOrderModal(order: order, rentalTypes: rentalTypes)
         }
 
         contentView.onTapSouvenir = { [weak self] viewModel in
@@ -234,10 +240,53 @@ final class ShiftWorkspacePadView: UIView {
         overlayView.onDismiss = { [weak self] in
             self?.dismissRentalOrderModal()
         }
-        overlayView.onConfirm = { [weak self] selections in
+        overlayView.onConfirm = { [weak self] selections, paymentMethod in
             guard let self else { return }
             dismissRentalOrderModal()
-            delegate?.shiftWorkspacePadView(self, didSubmitRentalOrderItems: selections)
+            delegate?.shiftWorkspacePadView(
+                self,
+                didSubmitRentalOrderItems: selections,
+                paymentMethod: paymentMethod
+            )
+        }
+
+        addSubview(overlayView)
+        overlayView.pin(to: self)
+
+        rentalOrderOverlayView = overlayView
+    }
+
+    private func showEditRentalOrderModal(
+        order: ShiftWorkspace.ActiveRentalOrderViewModel,
+        rentalTypes: [ShiftWorkspace.RentalOrderItemTypeViewModel]
+    ) {
+        rentalOrderOverlayView?.removeFromSuperview()
+
+        let overlayView = ShiftWorkspaceRentalOrderModalView(
+            rentalTypes: rentalTypes,
+            title: "Редактировать заказ",
+            submitButtonTitle: "Сохранить",
+            initialSelections: order.editableItems,
+            initialPaymentMethod: order.paymentMethod,
+            extensionButtonTitle: order.extendButtonTitle
+        )
+        overlayView.onDismiss = { [weak self] in
+            self?.dismissRentalOrderModal()
+        }
+        overlayView.onExtend = { [weak self] in
+            guard let self else { return }
+            dismissRentalOrderModal()
+            delegate?.shiftWorkspacePadView(self, didExtendRentalOrder: order.id)
+        }
+        overlayView.onConfirm = { [weak self] selections, paymentMethod in
+            guard let self else { return }
+            dismissRentalOrderModal()
+            delegate?.shiftWorkspacePadView(
+                self,
+                didEditRentalOrder: order.id,
+                selections: selections,
+                paymentMethod: paymentMethod
+            )
         }
 
         addSubview(overlayView)
@@ -298,34 +347,6 @@ final class ShiftWorkspacePadView: UIView {
     private func dismissOperationConfirmModal() {
         operationOverlayView?.removeFromSuperview()
         operationOverlayView = nil
-    }
-
-    private func showRentalPaymentModal(order: ShiftWorkspace.ActiveRentalOrderViewModel) {
-        rentalPaymentOverlayView?.removeFromSuperview()
-
-        let overlayView = ShiftWorkspaceRentalPaymentModalView(order: order)
-        overlayView.onDismiss = { [weak self] in
-            self?.dismissRentalPaymentModal()
-        }
-        overlayView.onConfirm = { [weak self] paymentMethod in
-            guard let self else { return }
-            dismissRentalPaymentModal()
-            delegate?.shiftWorkspacePadView(
-                self,
-                didCompleteRentalOrder: order.id,
-                paymentMethod: paymentMethod
-            )
-        }
-
-        addSubview(overlayView)
-        overlayView.pin(to: self)
-
-        rentalPaymentOverlayView = overlayView
-    }
-
-    private func dismissRentalPaymentModal() {
-        rentalPaymentOverlayView?.removeFromSuperview()
-        rentalPaymentOverlayView = nil
     }
 
     private func showCloseShiftModal() {

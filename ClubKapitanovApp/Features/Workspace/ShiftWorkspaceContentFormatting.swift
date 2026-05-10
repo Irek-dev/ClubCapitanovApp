@@ -83,8 +83,7 @@ struct ShiftWorkspaceContentFormatting {
     func rentalItemsText(for order: RentalOrder, types: [RentalType]) -> String {
         rentalItems(for: order, types: types)
             .map { item in
-                let tariff = tariffText(for: item)
-                return "\(rentalIconText(for: item, types: types)) \(item.rentalTypeNameSnapshot) №\(item.displayNumber) · \(tariff)"
+                "\(item.rentalTypeNameSnapshot) \(item.displayNumber)"
             }
             .joined(separator: ", ")
     }

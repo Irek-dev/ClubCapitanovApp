@@ -19,7 +19,7 @@ struct BuildShiftPayrollSummaryUseCase {
         let completedOrders = shift.rentalOrders
             .filter { $0.status == .completed }
             .sorted { ($0.finishedAt ?? $0.startedAt) < ($1.finishedAt ?? $1.startedAt) }
-        let totalTripsCount = completedOrders.reduce(0) { $0 + $1.quantity }
+        let totalTripsCount = completedOrders.reduce(0) { $0 + $1.billableTripsCount }
         let totalFund = Constants.ratePerCompletedTrip.multiplied(by: totalTripsCount)
         var amountsByParticipantID: [UUID: Money] = [:]
         var participatedTripsByParticipantID: [UUID: Int] = [:]
@@ -30,7 +30,7 @@ struct BuildShiftPayrollSummaryUseCase {
         }
 
         completedOrders.forEach { order in
-            guard let finishedAt = order.finishedAt, order.quantity > 0 else {
+            guard let finishedAt = order.finishedAt, order.billableTripsCount > 0 else {
                 return
             }
 
@@ -45,11 +45,11 @@ struct BuildShiftPayrollSummaryUseCase {
             }
 
             activeParticipants.forEach { participant in
-                participatedTripsByParticipantID[participant.id, default: 0] += order.quantity
+                participatedTripsByParticipantID[participant.id, default: 0] += order.billableTripsCount
             }
 
             distribute(
-                amount: Constants.ratePerCompletedTrip.multiplied(by: order.quantity),
+                amount: Constants.ratePerCompletedTrip.multiplied(by: order.billableTripsCount),
                 between: activeParticipants,
                 amountsByParticipantID: &amountsByParticipantID
             )

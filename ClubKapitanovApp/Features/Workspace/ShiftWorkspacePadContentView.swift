@@ -17,7 +17,10 @@ final class ShiftWorkspacePadContentView: UIView {
     var onTapSouvenir: ((ShiftWorkspace.ActionButtonViewModel) -> Void)?
     var onTapFine: ((ShiftWorkspace.ActionButtonViewModel) -> Void)?
     var onTapCreateRentalOrder: (([ShiftWorkspace.RentalOrderItemTypeViewModel]) -> Void)?
+    var onTapAddParticipant: (() -> Void)?
+    var onRemoveParticipant: ((UUID) -> Void)?
     var onCompleteRentalOrder: ((ShiftWorkspace.ActiveRentalOrderViewModel) -> Void)?
+    var onEditRentalOrder: ((ShiftWorkspace.ActiveRentalOrderViewModel, [ShiftWorkspace.RentalOrderItemTypeViewModel]) -> Void)?
     var onIncreaseQuantity: ((ShiftWorkspace.QuantityAdjustmentViewModel) -> Void)?
     var onDecreaseQuantity: ((ShiftWorkspace.QuantityAdjustmentViewModel) -> Void)?
     var onTapCloseShift: (() -> Void)?
@@ -72,10 +75,28 @@ final class ShiftWorkspacePadContentView: UIView {
                     cardView.onComplete = { [weak self] order in
                         self?.onCompleteRentalOrder?(order)
                     }
+                    cardView.onEdit = { [weak self] order in
+                        self?.onEditRentalOrder?(order, rentalTypes)
+                    }
                     stackView.addArrangedSubview(cardView)
                 }
             }
             stackView.addArrangedSubview(makeGroupedOperationsCard(report))
+        case let .participants(intro, participants, addButtonTitle):
+            stackView.addArrangedSubview(makeSectionIntro(intro))
+            let button = makeCompactActionButton(
+                title: addButtonTitle,
+                color: ShiftWorkspaceSection.participants.tintColor,
+                systemName: "person.badge.plus"
+            )
+            button.addAction(
+                UIAction { [weak self] _ in
+                    self?.onTapAddParticipant?()
+                },
+                for: .touchUpInside
+            )
+            stackView.addArrangedSubview(makeTrailingView(button))
+            stackView.addArrangedSubview(makeParticipantsCard(participants))
         case let .souvenirs(intro, buttons, summaryLines, report):
             stackView.addArrangedSubview(makeSectionIntro(intro))
             buttons.forEach { buttonViewModel in
@@ -108,14 +129,12 @@ final class ShiftWorkspacePadContentView: UIView {
                 stackView.addArrangedSubview(makeMutedCard(lines: summaryLines))
             }
             stackView.addArrangedSubview(makeGroupedOperationsCard(report))
-        case let .temporaryReport(intro, infoLines, rentalLines, summaryLines, employeeLines, souvenirReport, fineReport):
+        case let .temporaryReport(intro, infoLines, rentalReport, summaryLines, employeeLines, souvenirReport, fineReport):
             stackView.addArrangedSubview(makeSectionIntro(intro))
             if !infoLines.isEmpty {
                 stackView.addArrangedSubview(makeReportPreviewCard(lines: infoLines))
             }
-            if !rentalLines.isEmpty {
-                stackView.addArrangedSubview(makeMutedCard(lines: rentalLines))
-            }
+            stackView.addArrangedSubview(makeGroupedOperationsCard(rentalReport))
             if !summaryLines.isEmpty {
                 stackView.addArrangedSubview(makeMutedCard(lines: summaryLines))
             }
@@ -198,10 +217,18 @@ final class ShiftWorkspacePadContentView: UIView {
         return button
     }
 
-    private func makeCompactActionButton(title: String, color: UIColor) -> UIButton {
+    private func makeCompactActionButton(
+        title: String,
+        color: UIColor,
+        systemName: String? = nil
+    ) -> UIButton {
         let titleFont = BrandFont.demiBold(15)
         var configuration = UIButton.Configuration.filled()
         configuration.title = title
+        if let systemName {
+            configuration.image = UIImage(systemName: systemName)
+            configuration.imagePadding = 8
+        }
         configuration.baseBackgroundColor = color
         configuration.baseForegroundColor = BrandColor.onPrimary
         configuration.cornerStyle = .large
@@ -227,6 +254,92 @@ final class ShiftWorkspacePadContentView: UIView {
         contentView.pinBottom(to: containerView.bottomAnchor)
 
         return containerView
+    }
+
+    private func makeParticipantsCard(_ participants: [ShiftWorkspace.ParticipantViewModel]) -> UIView {
+        let stackView = UIStackView()
+        let titleLabel = makeMultilineLabel(
+            text: "Сотрудники на смене",
+            color: BrandColor.textPrimary,
+            font: BrandFont.bold(18)
+        )
+
+        stackView.axis = .vertical
+        stackView.spacing = 14
+        stackView.addArrangedSubview(titleLabel)
+
+        if participants.isEmpty {
+            stackView.addArrangedSubview(
+                makeMultilineLabel(
+                    text: "Сотрудники пока не добавлены",
+                    color: BrandColor.textSecondary,
+                    font: BrandFont.regular(15)
+                )
+            )
+        } else {
+            participants.forEach { participant in
+                stackView.addArrangedSubview(makeParticipantRow(participant))
+            }
+        }
+
+        return makeShadowCard(containing: stackView)
+    }
+
+    private func makeParticipantRow(_ participant: ShiftWorkspace.ParticipantViewModel) -> UIView {
+        let rowView = UIView()
+        let labelsStackView = UIStackView()
+        let nameLabel = makeMultilineLabel(
+            text: participant.name,
+            color: BrandColor.textPrimary,
+            font: BrandFont.demiBold(16)
+        )
+        let joinedLabel = makeMultilineLabel(
+            text: participant.joinedAtText,
+            color: BrandColor.textSecondary,
+            font: BrandFont.regular(14)
+        )
+        let removeButton = makeRemoveParticipantButton(participantID: participant.id)
+
+        labelsStackView.axis = .vertical
+        labelsStackView.spacing = 3
+        labelsStackView.addArrangedSubview(nameLabel)
+        labelsStackView.addArrangedSubview(joinedLabel)
+
+        rowView.addSubview(labelsStackView)
+        rowView.addSubview(removeButton)
+
+        labelsStackView.pinTop(to: rowView.topAnchor, 2)
+        labelsStackView.pinLeft(to: rowView.leadingAnchor)
+        labelsStackView.pinRight(to: removeButton.leadingAnchor, 16)
+        labelsStackView.pinBottom(to: rowView.bottomAnchor, 2)
+
+        removeButton.pinRight(to: rowView.trailingAnchor)
+        removeButton.pinCenterY(to: rowView)
+
+        rowView.setHeight(mode: .grOE, 48)
+        return rowView
+    }
+
+    private func makeRemoveParticipantButton(participantID: UUID) -> UIButton {
+        var configuration = UIButton.Configuration.filled()
+        configuration.image = UIImage(systemName: "trash")
+        configuration.baseBackgroundColor = BrandColor.surfaceMuted
+        configuration.baseForegroundColor = BrandColor.textSecondary
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = .init(top: 9, leading: 9, bottom: 9, trailing: 9)
+
+        let button = UIButton(type: .system)
+        button.configuration = configuration
+        button.accessibilityLabel = "Удалить сотрудника из смены"
+        button.addAction(
+            UIAction { [weak self] _ in
+                self?.onRemoveParticipant?(participantID)
+            },
+            for: .touchUpInside
+        )
+        button.setWidth(40)
+        button.setHeight(40)
+        return button
     }
 
     private func makeMutedCard(lines: [String]) -> UIView {

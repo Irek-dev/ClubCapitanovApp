@@ -6,6 +6,7 @@ import UIKit
 /// и цветами акцентов. Так Presenter/View не держат параллельные массивы настроек.
 enum ShiftWorkspaceSection: Int, CaseIterable {
     case ducks
+    case participants
     case souvenirs
     case fines
     case temporaryReport
@@ -14,7 +15,9 @@ enum ShiftWorkspaceSection: Int, CaseIterable {
     var title: String {
         switch self {
         case .ducks:
-            return "Утки"
+            return "Прокат"
+        case .participants:
+            return "Сотрудники"
         case .souvenirs:
             return "Сувенирка"
         case .fines:
@@ -30,6 +33,8 @@ enum ShiftWorkspaceSection: Int, CaseIterable {
         switch self {
         case .ducks:
             return "sailboat.fill"
+        case .participants:
+            return "person.3.fill"
         case .souvenirs:
             return "gift.fill"
         case .fines:
@@ -44,6 +49,8 @@ enum ShiftWorkspaceSection: Int, CaseIterable {
     var tintColor: UIColor {
         switch self {
         case .ducks:
+            return BrandColor.primaryBlue
+        case .participants:
             return BrandColor.primaryBlue
         case .souvenirs:
             return BrandColor.accentOrange

@@ -3,24 +3,58 @@ import UIKit
 /// Overlay создания одного активного заказа проката.
 final class ShiftWorkspaceRentalOrderModalView: UIView {
     var onDismiss: (() -> Void)?
-    var onConfirm: (([ShiftWorkspace.RentalOrderItemInput]) -> Void)?
+    var onConfirm: (([ShiftWorkspace.RentalOrderItemInput], PaymentMethod) -> Void)?
+    var onExtend: (() -> Void)?
 
     private let rentalTypes: [ShiftWorkspace.RentalOrderItemTypeViewModel]
+    private let title: String
+    private let submitButtonTitle: String
+    private let extensionButtonTitle: String?
+    private let initialSelections: [ShiftWorkspace.RentalOrderItemInput]
+    private let allowedFloatingKeys: Set<String>
     private let dialogView = ShiftWorkspaceShadowCardView(
         cornerRadius: 18,
         shadowOpacity: 0.16,
         shadowRadius: 28,
         shadowOffset: CGSize(width: 0, height: 16)
     )
+    private let scrollView = UIScrollView()
+    private let contentStackView = UIStackView()
     private let rowsStackView = UIStackView()
     private let messageLabel = UILabel()
+    private let paymentSelector: ShiftWorkspacePaymentMethodSelectorView
     private var rowViews: [RentalOrderItemRowView] = []
 
-    init(rentalTypes: [ShiftWorkspace.RentalOrderItemTypeViewModel]) {
+    init(
+        rentalTypes: [ShiftWorkspace.RentalOrderItemTypeViewModel],
+        title: String = "Новый заказ",
+        submitButtonTitle: String = "Создать",
+        initialSelections: [ShiftWorkspace.RentalOrderItemInput] = [],
+        initialPaymentMethod: PaymentMethod = .card,
+        extensionButtonTitle: String? = nil
+    ) {
         self.rentalTypes = rentalTypes
+        self.title = title
+        self.submitButtonTitle = submitButtonTitle
+        self.extensionButtonTitle = extensionButtonTitle
+        self.initialSelections = initialSelections
+        self.allowedFloatingKeys = Set(
+            initialSelections.map {
+                Self.selectionKey(typeIndex: $0.rentalTypeIndex, number: $0.number)
+            }
+        )
+        self.paymentSelector = ShiftWorkspacePaymentMethodSelectorView(
+            tintColor: ShiftWorkspaceSection.ducks.tintColor,
+            selectedPaymentMethod: initialPaymentMethod
+        )
         super.init(frame: .zero)
         configureUI()
-        addOrderItemRow()
+        if initialSelections.isEmpty {
+            addOrderItemRow()
+        } else {
+            initialSelections.forEach { addOrderItemRow(initialSelection: $0) }
+        }
+        updateRemoveButtons()
     }
 
     @available(*, unavailable)
@@ -34,15 +68,17 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
         let topSeparatorView = UIView()
         let bottomSeparatorView = UIView()
         let addRowButton = UIButton(type: .system)
+        let paymentContainerView = makePaymentContainer()
         let buttonsStackView = UIStackView()
         let cancelButton = UIButton(type: .system)
+        let extendButton = UIButton(type: .system)
         let submitButton = UIButton(type: .system)
 
         backgroundColor = BrandColor.modalOverlay
 
         dialogView.clipsToBounds = true
 
-        titleLabel.text = "Новый заказ"
+        titleLabel.text = title
         titleLabel.textColor = BrandColor.textPrimary
         titleLabel.font = BrandFont.bold(24)
         titleLabel.textAlignment = .center
@@ -56,6 +92,12 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
         rowsStackView.axis = .vertical
         rowsStackView.spacing = 10
 
+        scrollView.alwaysBounceVertical = false
+        scrollView.showsVerticalScrollIndicator = true
+
+        contentStackView.axis = .vertical
+        contentStackView.spacing = 16
+
         configureAddRowButton(addRowButton)
         addRowButton.addTarget(self, action: #selector(didTapAddRow), for: .touchUpInside)
 
@@ -67,7 +109,7 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
 
         buttonsStackView.axis = .horizontal
         buttonsStackView.distribution = .fillEqually
-        buttonsStackView.spacing = 170
+        buttonsStackView.spacing = extensionButtonTitle == nil ? 170 : 12
 
         configureActionButton(
             cancelButton,
@@ -75,31 +117,52 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
             color: BrandColor.surfaceMuted,
             textColor: BrandColor.textPrimary
         )
+        if let extensionButtonTitle {
+            configureSecondaryActionButton(
+                extendButton,
+                title: extensionButtonTitle,
+                systemName: "plus.circle"
+            )
+        }
         configureActionButton(
             submitButton,
-            title: "Создать",
+            title: submitButtonTitle,
             color: ShiftWorkspaceSection.ducks.tintColor,
             textColor: BrandColor.onPrimary
         )
 
         cancelButton.addTarget(self, action: #selector(didTapDismiss), for: .touchUpInside)
+        extendButton.addTarget(self, action: #selector(didTapExtend), for: .touchUpInside)
         submitButton.addTarget(self, action: #selector(didTapSubmit), for: .touchUpInside)
 
         addSubview(dialogView)
         dialogView.addSubview(titleLabel)
         dialogView.addSubview(closeButton)
         dialogView.addSubview(topSeparatorView)
-        dialogView.addSubview(rowsStackView)
-        dialogView.addSubview(addRowButton)
-        dialogView.addSubview(messageLabel)
+        dialogView.addSubview(scrollView)
         dialogView.addSubview(bottomSeparatorView)
         dialogView.addSubview(buttonsStackView)
 
+        scrollView.addSubview(contentStackView)
+        contentStackView.addArrangedSubview(rowsStackView)
+        contentStackView.addArrangedSubview(addRowButton)
+        contentStackView.addArrangedSubview(paymentContainerView)
+        contentStackView.addArrangedSubview(messageLabel)
         buttonsStackView.addArrangedSubview(cancelButton)
+        if extensionButtonTitle != nil {
+            buttonsStackView.addArrangedSubview(extendButton)
+        }
         buttonsStackView.addArrangedSubview(submitButton)
 
         dialogView.pinCenter(to: self)
         dialogView.setWidth(540)
+        dialogView.setHeight(760, priority: .defaultHigh)
+        dialogView.pinHeight(
+            to: safeAreaLayoutGuide.heightAnchor,
+            multiplier: 1,
+            constant: -48,
+            .lsOE
+        )
         dialogView.pinLeft(to: leadingAnchor, 26, .grOE)
         dialogView.pinRight(to: trailingAnchor, 26, .lsOE)
 
@@ -115,38 +178,66 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
         topSeparatorView.pinRight(to: dialogView.trailingAnchor)
         topSeparatorView.setHeight(1)
 
-        rowsStackView.pinTop(to: topSeparatorView.bottomAnchor, 16)
-        rowsStackView.pinLeft(to: dialogView.leadingAnchor, 24)
-        rowsStackView.pinRight(to: dialogView.trailingAnchor, 24)
+        scrollView.pinTop(to: topSeparatorView.bottomAnchor)
+        scrollView.pinLeft(to: dialogView.leadingAnchor)
+        scrollView.pinRight(to: dialogView.trailingAnchor)
+        scrollView.pinBottom(to: bottomSeparatorView.topAnchor)
 
-        addRowButton.pinTop(to: rowsStackView.bottomAnchor, 16)
-        addRowButton.pinLeft(to: rowsStackView.leadingAnchor)
-        addRowButton.pinRight(to: rowsStackView.trailingAnchor)
+        contentStackView.pinTop(to: scrollView.contentLayoutGuide.topAnchor, 16)
+        contentStackView.pinLeft(to: scrollView.contentLayoutGuide.leadingAnchor, 24)
+        contentStackView.pinRight(to: scrollView.contentLayoutGuide.trailingAnchor, 24)
+        contentStackView.pinBottom(to: scrollView.contentLayoutGuide.bottomAnchor, 16)
+        contentStackView.pinWidth(to: scrollView.frameLayoutGuide.widthAnchor, constant: -48)
 
-        messageLabel.pinTop(to: addRowButton.bottomAnchor, 10)
-        messageLabel.pinLeft(to: rowsStackView.leadingAnchor)
-        messageLabel.pinRight(to: rowsStackView.trailingAnchor)
-
-        bottomSeparatorView.pinTop(to: messageLabel.bottomAnchor, 16)
+        bottomSeparatorView.pinBottom(to: buttonsStackView.topAnchor, 18)
         bottomSeparatorView.pinLeft(to: dialogView.leadingAnchor)
         bottomSeparatorView.pinRight(to: dialogView.trailingAnchor)
         bottomSeparatorView.setHeight(1)
 
-        buttonsStackView.pinTop(to: bottomSeparatorView.bottomAnchor, 18)
         buttonsStackView.pinLeft(to: dialogView.leadingAnchor, 24)
         buttonsStackView.pinRight(to: dialogView.trailingAnchor, 24)
         buttonsStackView.pinBottom(to: dialogView.bottomAnchor, 20)
     }
 
-    private func addOrderItemRow() {
+    private func makePaymentContainer() -> UIView {
+        let containerView = ShiftWorkspaceBorderedContainerView(
+            cornerRadius: 14,
+            fillColor: BrandColor.surfaceMuted
+        )
+        containerView.addSubview(paymentSelector)
+        paymentSelector.pin(to: containerView, 14)
+        return containerView
+    }
+
+    private func addOrderItemRow(initialSelection: ShiftWorkspace.RentalOrderItemInput? = nil) {
         guard let firstType = rentalTypes.first else { return }
 
         let rowView = RentalOrderItemRowView(
             rentalTypes: rentalTypes,
-            initialTypeIndex: firstType.index
+            initialTypeIndex: initialSelection?.rentalTypeIndex ?? firstType.index,
+            initialNumber: initialSelection?.number
         )
+        rowView.onRemove = { [weak self, weak rowView] in
+            guard let self, let rowView else { return }
+            removeOrderItemRow(rowView)
+        }
         rowViews.append(rowView)
         rowsStackView.addArrangedSubview(rowView)
+        updateRemoveButtons()
+    }
+
+    private func removeOrderItemRow(_ rowView: RentalOrderItemRowView) {
+        guard rowViews.count > 1 else { return }
+
+        rowViews.removeAll { $0 === rowView }
+        rowsStackView.removeArrangedSubview(rowView)
+        rowView.removeFromSuperview()
+        updateRemoveButtons()
+    }
+
+    private func updateRemoveButtons() {
+        let canRemove = rowViews.count > 1
+        rowViews.forEach { $0.setRemoveButtonVisible(canRemove) }
     }
 
     private func configureIconButton(_ button: UIButton, systemName: String, accessibilityLabel: String) {
@@ -200,6 +291,28 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
         button.setHeight(56)
     }
 
+    private func configureSecondaryActionButton(_ button: UIButton, title: String, systemName: String) {
+        let titleFont = BrandFont.demiBold(15)
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = title
+        configuration.image = UIImage(systemName: systemName)
+        configuration.imagePadding = 8
+        configuration.baseBackgroundColor = BrandColor.surfaceMuted
+        configuration.baseForegroundColor = ShiftWorkspaceSection.ducks.tintColor
+        configuration.cornerStyle = .large
+        configuration.contentInsets = .init(top: 16, leading: 14, bottom: 16, trailing: 14)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = titleFont
+            return outgoing
+        }
+
+        button.configuration = configuration
+        button.titleLabel?.minimumScaleFactor = 0.82
+        button.titleLabel?.adjustsFontSizeToFitWidth = true
+        button.setHeight(56)
+    }
+
     @objc
     private func didTapAddRow() {
         addOrderItemRow()
@@ -208,6 +321,11 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
     @objc
     private func didTapDismiss() {
         onDismiss?()
+    }
+
+    @objc
+    private func didTapExtend() {
+        onExtend?()
     }
 
     @objc
@@ -236,15 +354,15 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
                 return
             }
 
-            let key = "\(selectedType.index)-\(number)"
+            let duplicateKey = Self.selectionKey(typeIndex: selectedType.index, number: number)
 
-            guard !seenKeys.contains(key) else {
+            guard !seenKeys.contains(duplicateKey) else {
                 showError("Объект \(selectedType.title) №\(number) уже добавлен в этот заказ.")
                 return
             }
-            seenKeys.insert(key)
+            seenKeys.insert(duplicateKey)
 
-            guard !selectedType.floatingNumbers.contains(number) else {
+            guard !selectedType.floatingNumbers.contains(number) || allowedFloatingKeys.contains(duplicateKey) else {
                 showError(alreadyFloatingText(typeTitle: selectedType.title, number: number))
                 return
             }
@@ -257,7 +375,7 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
             return
         }
 
-        onConfirm?(selections)
+        onConfirm?(selections, paymentSelector.selectedPaymentMethod)
     }
 
     private func showError(_ text: String) {
@@ -270,13 +388,20 @@ final class ShiftWorkspaceRentalOrderModalView: UIView {
         let pronoun = title.hasSuffix("а") || title.hasSuffix("я") ? "она" : "он"
         return "Нельзя сдать \(title) №\(number), так как \(pronoun) уже плавает."
     }
+
+    private static func selectionKey(typeIndex: Int, number: Int) -> String {
+        "\(typeIndex)-\(number)"
+    }
 }
 
 private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
+    var onRemove: (() -> Void)?
+
     private let rentalTypes: [ShiftWorkspace.RentalOrderItemTypeViewModel]
     private var selectedTypeIndex: Int
     private let selectTypeButton = UIButton(type: .system)
     private let numberField = UITextField()
+    private let removeButton = UIButton(type: .system)
 
     var selectedRentalType: ShiftWorkspace.RentalOrderItemTypeViewModel? {
         rentalTypes.first { $0.index == selectedTypeIndex } ?? rentalTypes.first
@@ -292,12 +417,14 @@ private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
 
     init(
         rentalTypes: [ShiftWorkspace.RentalOrderItemTypeViewModel],
-        initialTypeIndex: Int
+        initialTypeIndex: Int,
+        initialNumber: Int? = nil
     ) {
         self.rentalTypes = rentalTypes
         self.selectedTypeIndex = initialTypeIndex
         super.init(frame: .zero)
         configureUI()
+        numberField.text = initialNumber.map(String.init)
         updateSelectedType()
     }
 
@@ -323,10 +450,12 @@ private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
 
         configureSelectTypeButton()
         configureNumberField()
+        configureRemoveButton()
 
         addSubview(stackView)
         stackView.addArrangedSubview(selectTypeButton)
         stackView.addArrangedSubview(numberField)
+        stackView.addArrangedSubview(removeButton)
 
         stackView.pinTop(to: topAnchor, 6)
         stackView.pinLeft(to: leadingAnchor, 12)
@@ -351,7 +480,7 @@ private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
 
     private func configureNumberField() {
         numberField.placeholder = "№"
-        numberField.keyboardType = .numberPad
+        numberField.keyboardType = .numbersAndPunctuation
         numberField.textAlignment = .center
         numberField.font = BrandFont.demiBold(18)
         numberField.textColor = BrandColor.textPrimary
@@ -360,6 +489,23 @@ private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
         numberField.delegate = self
         numberField.setWidth(104)
         numberField.setHeight(42)
+    }
+
+    private func configureRemoveButton() {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "trash")
+        configuration.baseForegroundColor = BrandColor.error
+        configuration.contentInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
+        removeButton.configuration = configuration
+        removeButton.accessibilityLabel = "Удалить объект из заказа"
+        removeButton.addTarget(self, action: #selector(didTapRemove), for: .touchUpInside)
+        removeButton.setWidth(38)
+        removeButton.setHeight(38)
+    }
+
+    func setRemoveButtonVisible(_ isVisible: Bool) {
+        removeButton.isHidden = !isVisible
+        removeButton.isEnabled = isVisible
     }
 
     private func applyContainerStyle() {
@@ -429,5 +575,10 @@ private final class RentalOrderItemRowView: UIView, UITextFieldDelegate {
 
         let newText = currentText.replacingCharacters(in: swiftRange, with: string)
         return newText.count <= 2 && newText.allSatisfy(\.isNumber)
+    }
+
+    @objc
+    private func didTapRemove() {
+        onRemove?()
     }
 }

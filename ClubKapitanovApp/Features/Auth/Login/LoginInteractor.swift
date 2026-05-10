@@ -6,9 +6,14 @@ import Foundation
 /// из рабочего приложения и решает, когда передать пользователя в Router.
 protocol LoginBusinessLogic {
     func submit(request: Login.Submit.Request)
+    func submitAdmin(request: Login.AdminSubmit.Request)
 }
 
 final class LoginInteractor: LoginBusinessLogic {
+    private enum Constants {
+        static let adminPassword = "123"
+    }
+
     // MARK: - Dependencies
 
     private let loginUseCase: LoginUseCase
@@ -62,5 +67,37 @@ final class LoginInteractor: LoginBusinessLogic {
 
         presenter.present(response: .init(user: user), errorMessage: nil)
         router.routeToNextScreen(for: user)
+    }
+
+    func submitAdmin(request: Login.AdminSubmit.Request) {
+        let normalizedPIN = request.pinCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = request.password.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard normalizedPIN.count == 4, normalizedPIN.allSatisfy(\.isNumber) else {
+            presenter.present(
+                response: .init(user: nil),
+                errorMessage: "Введите 4-значный PIN администратора."
+            )
+            return
+        }
+
+        guard password == Constants.adminPassword else {
+            presenter.present(
+                response: .init(user: nil),
+                errorMessage: "Неверный пароль администратора."
+            )
+            return
+        }
+
+        guard let user = loginUseCase.execute(pinCode: normalizedPIN), user.role == .admin else {
+            presenter.present(
+                response: .init(user: nil),
+                errorMessage: "PIN не принадлежит администратору."
+            )
+            return
+        }
+
+        presenter.present(response: .init(user: user), errorMessage: nil)
+        router.routeToAdminPointSelection(for: user)
     }
 }

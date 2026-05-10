@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C9F6E1A32F9A000100000001 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = C9F6E1A32F9A000100000003 /* FirebaseCore */; };
+		C9F6E1A32F9A000100000005 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = C9F6E1A32F9A000100000004 /* FirebaseFirestore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		5813F98F2F810CB8001CE4F7 /* ClubKapitanovApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClubKapitanovApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -36,6 +41,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C9F6E1A32F9A000100000001 /* FirebaseCore in Frameworks */,
+				C9F6E1A32F9A000100000005 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +85,8 @@
 			);
 			name = ClubKapitanovApp;
 			packageProductDependencies = (
+				C9F6E1A32F9A000100000003 /* FirebaseCore */,
+				C9F6E1A32F9A000100000004 /* FirebaseFirestore */,
 			);
 			productName = ClubKapitanovApp;
 			productReference = 5813F98F2F810CB8001CE4F7 /* ClubKapitanovApp.app */;
@@ -107,6 +116,9 @@
 			);
 			mainGroup = 5813F9862F810CB8001CE4F7;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C9F6E1A32F9A000100000002 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5813F9902F810CB8001CE4F7 /* Products */;
 			projectDirPath = "";
@@ -339,6 +351,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C9F6E1A32F9A000100000002 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.13.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C9F6E1A32F9A000100000003 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9F6E1A32F9A000100000002 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		C9F6E1A32F9A000100000004 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9F6E1A32F9A000100000002 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5813F9872F810CB8001CE4F7 /* Project object */;
 }

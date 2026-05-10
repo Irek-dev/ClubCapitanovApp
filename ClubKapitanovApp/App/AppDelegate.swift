@@ -1,3 +1,4 @@
+import FirebaseCore
 import UIKit
 
 /// Точка входа жизненного цикла приложения на уровне UIKit.
@@ -8,6 +9,7 @@ import UIKit
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        FirebaseApp.configure()
         return true
     }
 

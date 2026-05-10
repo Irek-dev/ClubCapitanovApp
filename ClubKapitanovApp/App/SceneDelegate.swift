@@ -11,8 +11,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         // DI-контейнер создается один раз на сцену, чтобы все модули использовали
-        // одни и те же in-memory репозитории. Так открытая смена не теряется при
-        // переходах между экранами.
+        // одни и те же репозитории и их локальный кэш. Так открытая смена и
+        // загруженные каталоги не теряются при переходах между экранами.
         let container = AppDIContainer()
         let window = UIWindow(windowScene: windowScene)
         window.backgroundColor = BrandColor.background
