@@ -47,7 +47,7 @@ struct BuildShiftCloseReportUseCase {
         let completedOrders = orders.filter { $0.status == .completed }
 
         return ShiftRentalCloseSummary(
-            totalTripsCount: completedOrders.reduce(0) { $0 + $1.quantity },
+            totalTripsCount: completedOrders.reduce(0) { $0 + $1.billableTripsCount },
             revenue: Money.sum(completedOrders.map(\.totalPrice)),
             tripsByType: rentalTypeRows(from: completedOrders),
             tariffBreakdown: tariffRows(from: completedOrders),
@@ -87,12 +87,12 @@ struct BuildShiftCloseReportUseCase {
 
         orders.forEach { order in
             if order.rentedItemsSnapshot.isEmpty {
-                countsByTitle[order.rentalTypeNameSnapshot, default: 0] += order.quantity
+                countsByTitle[order.rentalTypeNameSnapshot, default: 0] += order.billableTripsCount
                 return
             }
 
             order.rentedItemsSnapshot.forEach { item in
-                countsByTitle[item.rentalTypeNameSnapshot, default: 0] += 1
+                countsByTitle[item.rentalTypeNameSnapshot, default: 0] += order.rentalPeriodsCount
             }
         }
 
@@ -115,7 +115,7 @@ struct BuildShiftCloseReportUseCase {
 
                 if !itemAmounts.isEmpty {
                     itemAmounts.forEach { title, amount in
-                        amountsByTitle[title, default: .zero] += amount
+                        amountsByTitle[title, default: .zero] += amount.multiplied(by: order.rentalPeriodsCount)
                     }
                     return
                 }

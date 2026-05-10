@@ -40,7 +40,7 @@ final class ShiftWorkspaceContentFactory {
         switch state.selectedSection {
         case .ducks:
             return .ducks(
-                intro: "Прокат уток и управление заказами",
+                intro: "Прокат корабликов и управление активными заказами",
                 createOrderButtonTitle: "Новый заказ",
                 rentalTypes: rentalOrderItemTypes(from: state),
                 activeOrders: activeRentalOrderViewModels(from: state),
@@ -50,6 +50,26 @@ final class ShiftWorkspaceContentFactory {
                     emptyText: "Сейчас ничего не плавает",
                     rows: rentalReportRows(from: state)
                 )
+            )
+        case .participants:
+            return .participants(
+                intro: "Участники текущей смены",
+                participants: state.shift.participants
+                    .filter { $0.leftAt == nil }
+                    .sorted { lhs, rhs in
+                        if lhs.joinedAt != rhs.joinedAt {
+                            return lhs.joinedAt < rhs.joinedAt
+                        }
+                        return lhs.displayNameSnapshot < rhs.displayNameSnapshot
+                    }
+                    .map {
+                        .init(
+                            id: $0.id,
+                            name: $0.displayNameSnapshot,
+                            joinedAtText: "с \(formatting.formattedTime($0.joinedAt))"
+                        )
+                    },
+                addButtonTitle: "Добавить сотрудника"
             )
         case .souvenirs:
             return .souvenirs(
@@ -97,7 +117,12 @@ final class ShiftWorkspaceContentFactory {
             return .temporaryReport(
                 intro: "Временный отчет смены",
                 infoLines: temporaryOverviewLines(in: state),
-                rentalLines: [],
+                rentalReport: .init(
+                    title: "Прокат",
+                    emptyText: "Сдач проката пока нет",
+                    rows: temporaryRentalRows(in: state),
+                    footerText: "Итого прокат: \(formatting.reportMoneyText(temporaryRentalTotal(in: state)))"
+                ),
                 summaryLines: [],
                 employeeLines: [],
                 souvenirReport: .init(
@@ -157,9 +182,13 @@ final class ShiftWorkspaceContentFactory {
                     title: "Заказ #\(index + 1)",
                     itemsText: formatting.rentalItemsText(for: order, types: state.rentalTypes),
                     startedAtText: "Старт: \(formatting.formattedTime(order.startedAt))",
-                    totalAmountText: "К оплате: \(formatting.moneyText(order.totalPrice))",
+                    totalAmountText: "\(formatting.moneyText(order.totalPrice)) / \(order.durationMinutes) мин",
                     startedAt: order.startedAt,
                     expectedEndAt: order.expectedEndAt,
+                    editableItems: editableRentalItems(for: order, in: state),
+                    paymentMethod: order.paymentMethod,
+                    editButtonTitle: "Редактировать",
+                    extendButtonTitle: "Продлить +20 мин",
                     completeButtonTitle: "Завершить"
                 )
             }
@@ -284,6 +313,12 @@ final class ShiftWorkspaceContentFactory {
         state.rentalOrders.filter { $0.status == .completed }
     }
 
+    private func reportableRentalOrders(in state: ShiftWorkspace.State) -> [RentalOrder] {
+        state.rentalOrders.filter { order in
+            order.status == .active || order.status == .completed
+        }
+    }
+
     private func activeRentalItems(in state: ShiftWorkspace.State) -> [RentalOrderItemSnapshot] {
         activeRentalOrders(in: state).flatMap { formatting.rentalItems(for: $0, types: state.rentalTypes) }
     }
@@ -296,7 +331,22 @@ final class ShiftWorkspaceContentFactory {
     }
 
     private func completedRentalQuantity(in state: ShiftWorkspace.State) -> Int {
-        completedRentalOrders(in: state).reduce(0) { $0 + $1.quantity }
+        completedRentalOrders(in: state).reduce(0) { $0 + $1.billableTripsCount }
+    }
+
+    private func editableRentalItems(
+        for order: RentalOrder,
+        in state: ShiftWorkspace.State
+    ) -> [ShiftWorkspace.RentalOrderItemInput] {
+        formatting.rentalItems(for: order, types: state.rentalTypes).compactMap { item in
+            guard let typeIndex = state.rentalTypes.firstIndex(where: { type in
+                type.id == item.rentalTypeID || type.name == item.rentalTypeNameSnapshot
+            }) else {
+                return nil
+            }
+
+            return .init(rentalTypeIndex: typeIndex, number: item.displayNumber)
+        }
     }
 
     private func closeEquipmentRows(in state: ShiftWorkspace.State) -> [ShiftWorkspace.CloseShiftManualRowViewModel] {
@@ -323,7 +373,7 @@ final class ShiftWorkspaceContentFactory {
     }
 
     private func temporaryOverviewLines(in state: ShiftWorkspace.State) -> [String] {
-        let rentalTotal = Money.sum(completedRentalOrders(in: state).map(\.totalPrice))
+        let rentalTotal = temporaryRentalTotal(in: state)
         let souvenirTotal = Money.sum(state.souvenirSales.map(\.totalPrice))
         let finesTotal = Money.sum(state.fines.map(\.amount))
         let total = rentalTotal + souvenirTotal + finesTotal
@@ -334,6 +384,26 @@ final class ShiftWorkspaceContentFactory {
             "Длительность: \(shiftDurationText(from: state.shift))",
             "Общая выручка: \(formatting.reportMoneyText(total))"
         ]
+    }
+
+    private func temporaryRentalRows(in state: ShiftWorkspace.State) -> [ShiftWorkspace.ReportRowViewModel] {
+        rentalReportBreakdownRows(
+            in: state,
+            orders: reportableRentalOrders(in: state)
+        )
+        .filter { $0.count > 0 }
+        .map { row in
+            .init(
+                title: row.title,
+                detail: "\(row.count) \(rentalTripWord(for: row.count))",
+                amount: formatting.reportMoneyText(row.amount),
+                quantityAdjustment: nil
+            )
+        }
+    }
+
+    private func temporaryRentalTotal(in state: ShiftWorkspace.State) -> Money {
+        Money.sum(reportableRentalOrders(in: state).map(\.totalPrice))
     }
 
     private func temporarySouvenirRows(in state: ShiftWorkspace.State) -> [ShiftWorkspace.ReportRowViewModel] {
@@ -362,7 +432,10 @@ final class ShiftWorkspaceContentFactory {
             }
     }
 
-    private func rentalReportBreakdownRows(in state: ShiftWorkspace.State) -> [RentalReportBreakdownRow] {
+    private func rentalReportBreakdownRows(
+        in state: ShiftWorkspace.State,
+        orders: [RentalOrder]? = nil
+    ) -> [RentalReportBreakdownRow] {
         var rows = state.rentalTypes.map { type in
             RentalReportBreakdownRow(
                 typeID: type.id,
@@ -373,7 +446,7 @@ final class ShiftWorkspaceContentFactory {
             )
         }
 
-        completedRentalOrders(in: state).forEach { order in
+        (orders ?? completedRentalOrders(in: state)).forEach { order in
             let items = formatting.rentalItems(for: order, types: state.rentalTypes)
 
             if items.isEmpty {
@@ -381,7 +454,7 @@ final class ShiftWorkspaceContentFactory {
                     typeID: order.rentalTypeID,
                     typeName: order.rentalTypeNameSnapshot,
                     code: state.rentalTypes.first { $0.id == order.rentalTypeID }?.code ?? "",
-                    count: order.quantity,
+                    count: order.billableTripsCount,
                     amount: order.totalPrice,
                     rows: &rows
                 )
@@ -390,12 +463,12 @@ final class ShiftWorkspaceContentFactory {
 
             let fallbackAmounts = split(amount: order.totalPrice, into: items.count)
             items.enumerated().forEach { index, item in
-                let amount = item.tariffPriceSnapshot ?? fallbackAmounts[index]
+                let amount = item.tariffPriceSnapshot?.multiplied(by: order.rentalPeriodsCount) ?? fallbackAmounts[index]
                 addRentalReport(
                     typeID: item.rentalTypeID,
                     typeName: item.rentalTypeNameSnapshot,
                     code: item.rentalTypeCodeSnapshot,
-                    count: 1,
+                    count: order.rentalPeriodsCount,
                     amount: amount,
                     rows: &rows
                 )
@@ -440,6 +513,21 @@ final class ShiftWorkspaceContentFactory {
         return (0..<parts).map { index in
             Money(kopecks: base + (index < remainder ? 1 : 0))
         }
+    }
+
+    private func rentalTripWord(for count: Int) -> String {
+        let mod10 = count % 10
+        let mod100 = count % 100
+
+        if mod10 == 1 && mod100 != 11 {
+            return "сдача"
+        }
+
+        if (2...4).contains(mod10) && !(12...14).contains(mod100) {
+            return "сдачи"
+        }
+
+        return "сдач"
     }
 
     private func finalReportLines(in state: ShiftWorkspace.State) -> [String] {

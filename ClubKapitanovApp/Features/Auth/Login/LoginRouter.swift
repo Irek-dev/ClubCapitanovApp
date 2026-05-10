@@ -6,6 +6,7 @@ import UIKit
 /// пользователь прошел вход, а Router знает, какой следующий модуль собрать.
 protocol LoginRoutingLogic {
     func routeToNextScreen(for user: User)
+    func routeToAdminPointSelection(for user: User)
 }
 
 final class LoginRouter: LoginRoutingLogic {
@@ -32,5 +33,14 @@ final class LoginRouter: LoginRoutingLogic {
         case .admin:
             assertionFailure("Admin users must be handled outside the working app flow.")
         }
+    }
+
+    func routeToAdminPointSelection(for user: User) {
+        let destination = AdminPointSelectionViewController(
+            adminUser: user,
+            pointRepository: container.pointRepository,
+            container: container
+        )
+        viewController?.navigationController?.pushViewController(destination, animated: true)
     }
 }

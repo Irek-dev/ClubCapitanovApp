@@ -61,6 +61,10 @@ enum ShiftWorkspace {
         let totalAmountText: String
         let startedAt: Date
         let expectedEndAt: Date
+        let editableItems: [RentalOrderItemInput]
+        let paymentMethod: PaymentMethod
+        let editButtonTitle: String
+        let extendButtonTitle: String
         let completeButtonTitle: String
     }
 
@@ -129,6 +133,11 @@ enum ShiftWorkspace {
             summaryLines: [String],
             report: ReportGroupViewModel
         )
+        case participants(
+            intro: String,
+            participants: [ParticipantViewModel],
+            addButtonTitle: String
+        )
         case souvenirs(
             intro: String,
             buttons: [ActionButtonViewModel],
@@ -144,7 +153,7 @@ enum ShiftWorkspace {
         case temporaryReport(
             intro: String,
             infoLines: [String],
-            rentalLines: [String],
+            rentalReport: ReportGroupViewModel,
             summaryLines: [String],
             employeeLines: [String],
             souvenirReport: ReportGroupViewModel,

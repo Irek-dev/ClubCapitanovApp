@@ -17,9 +17,9 @@ final class AppDIContainer {
     // MARK: - Init
 
     init(
-        authRepository: AuthRepository = InMemoryAuthRepository(),
+        authRepository: AuthRepository = FirebaseCachedAuthRepository(),
         pointRepository: PointRepository = InMemoryPointRepository(),
-        catalogRepository: CatalogRepository = InMemoryCatalogRepository(),
+        catalogRepository: CatalogRepository = FirebaseCachedCatalogRepository(),
         shiftRepository: ShiftRepository = InMemoryShiftRepository(),
         reportRepository: ReportRepository = InMemoryReportRepository(),
         dateProvider: DateProviding = SystemDateProvider()

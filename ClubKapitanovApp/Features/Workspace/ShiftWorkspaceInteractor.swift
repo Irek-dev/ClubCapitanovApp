@@ -9,8 +9,10 @@ protocol ShiftWorkspaceBusinessLogic {
     func select(section: ShiftWorkspaceSection)
     func addParticipant(pinCode: String)
     func removeParticipant(id: UUID)
-    func createRentalOrder(_ selections: [ShiftWorkspace.RentalOrderItemInput])
-    func completeRentalOrder(id: UUID, paymentMethod: PaymentMethod)
+    func createRentalOrder(_ selections: [ShiftWorkspace.RentalOrderItemInput], paymentMethod: PaymentMethod)
+    func editRentalOrder(id: UUID, selections: [ShiftWorkspace.RentalOrderItemInput], paymentMethod: PaymentMethod)
+    func completeRentalOrder(id: UUID)
+    func extendRentalOrder(id: UUID)
     func addSouvenir(at index: Int, quantity: Int, paymentMethod: PaymentMethod)
     func addFine(at index: Int, quantity: Int, paymentMethod: PaymentMethod)
     func increaseSouvenirQuantity(at index: Int)
@@ -23,6 +25,7 @@ protocol ShiftWorkspaceBusinessLogic {
 final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
     private enum RentalTiming {
         static let fallbackDurationMinutes = 20
+        static let extensionMinutes = 20
     }
 
     /// Локальный state экрана. После каждой операции он синхронизируется с
@@ -189,61 +192,18 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         )
     }
 
-    func createRentalOrder(_ selections: [ShiftWorkspace.RentalOrderItemInput]) {
-        let validSelections = selections.compactMap { selection -> (type: RentalType, number: Int)? in
-            guard state.rentalTypes.indices.contains(selection.rentalTypeIndex) else { return nil }
-            guard (1...99).contains(selection.number) else { return nil }
-            return (state.rentalTypes[selection.rentalTypeIndex], selection.number)
-        }
-
-        guard !validSelections.isEmpty, validSelections.count == selections.count else {
-            presenter.present(
-                feedback: .init(
-                    title: "Не выбрано",
-                    message: "Добавьте хотя бы один объект с номером от 1 до 99."
-                )
-            )
-            return
-        }
-
-        if let typeWithoutTariff = validSelections.first(where: { $0.type.defaultTariff == nil })?.type {
-            presenter.present(
-                feedback: .init(
-                    title: "Тариф не настроен",
-                    message: "Для \(typeWithoutTariff.name) нет активного тарифа. Проверьте каталог точки."
-                )
-            )
-            return
-        }
-
-        let duplicateInOrder = firstDuplicate(in: validSelections)
-        if let duplicateInOrder {
-            presenter.present(
-                feedback: .init(
-                    title: "Повтор в заказе",
-                    message: "Объект \(duplicateInOrder.type.name) №\(duplicateInOrder.number) уже добавлен в этот заказ."
-                )
-            )
-            return
-        }
-
-        let activeItems = activeRentalItems()
-        if let blocked = validSelections.first(where: { selection in
-            activeItems.contains { item in
-                item.rentalTypeID == selection.type.id && item.displayNumber == selection.number
-            }
-        }) {
-            presenter.present(
-                feedback: .init(
-                    title: "Нельзя сдать",
-                    message: alreadyFloatingText(type: blocked.type, number: blocked.number)
-                )
-            )
-            return
-        }
+    func createRentalOrder(_ selections: [ShiftWorkspace.RentalOrderItemInput], paymentMethod: PaymentMethod) {
+        guard let validSelections = validatedRentalSelections(
+            selections,
+            excludingOrderID: nil
+        ) else { return }
 
         let now = dateProvider.now
-        guard let order = makeActiveRentalOrder(items: validSelections, startedAt: now) else {
+        guard let order = makeActiveRentalOrder(
+            items: validSelections,
+            startedAt: now,
+            paymentMethod: paymentMethod
+        ) else {
             presenter.present(
                 feedback: .init(
                     title: "Не выбрано",
@@ -264,7 +224,49 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         )
     }
 
-    func completeRentalOrder(id: UUID, paymentMethod: PaymentMethod) {
+    func editRentalOrder(
+        id: UUID,
+        selections: [ShiftWorkspace.RentalOrderItemInput],
+        paymentMethod: PaymentMethod
+    ) {
+        guard let orderIndex = state.rentalOrders.firstIndex(where: { order in
+            order.id == id && order.status == .active
+        }) else {
+            return
+        }
+
+        guard let validSelections = validatedRentalSelections(
+            selections,
+            excludingOrderID: id
+        ) else { return }
+
+        guard let updatedOrder = makeEditedRentalOrder(
+            from: state.rentalOrders[orderIndex],
+            items: validSelections,
+            paymentMethod: paymentMethod
+        ) else {
+            presenter.present(
+                feedback: .init(
+                    title: "Не выбрано",
+                    message: "Добавьте хотя бы один объект с номером от 1 до 99."
+                )
+            )
+            return
+        }
+
+        state.rentalOrders[orderIndex] = updatedOrder
+        persistCurrentOperations()
+
+        presenter.present(response: .init(state: state))
+        presenter.present(
+            feedback: .init(
+                title: "Заказ обновлен",
+                message: "\(updatedOrder.quantity) объект(а), \(moneyText(updatedOrder.totalPrice)) · \(updatedOrder.paymentMethod.workspaceTitle)"
+            )
+        )
+    }
+
+    func completeRentalOrder(id: UUID) {
         guard let orderIndex = state.rentalOrders.firstIndex(where: { order in
             order.id == id && order.status == .active
         }) else {
@@ -272,8 +274,7 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         }
 
         let completedOrder = state.rentalOrders[orderIndex].completed(
-            at: dateProvider.now,
-            paymentMethod: paymentMethod
+            at: dateProvider.now
         )
         state.rentalOrders[orderIndex] = completedOrder
         persistCurrentOperations()
@@ -282,7 +283,33 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         presenter.present(
             feedback: .init(
                 title: "Заказ завершен",
-                message: "\(completedOrder.quantity) объект(а), \(moneyText(completedOrder.totalPrice)) · \(paymentMethod.workspaceTitle)"
+                message: "\(completedOrder.quantity) объект(а), \(moneyText(completedOrder.totalPrice)) · \(completedOrder.paymentMethod.workspaceTitle)"
+            )
+        )
+    }
+
+    func extendRentalOrder(id: UUID) {
+        guard let orderIndex = state.rentalOrders.firstIndex(where: { order in
+            order.id == id && order.status == .active
+        }) else {
+            return
+        }
+
+        let order = state.rentalOrders[orderIndex]
+        let additionalPrice = extensionPrice(for: order)
+        let extendedOrder = order.extended(
+            byMinutes: RentalTiming.extensionMinutes,
+            additionalPrice: additionalPrice
+        )
+
+        state.rentalOrders[orderIndex] = extendedOrder
+        persistCurrentOperations()
+
+        presenter.present(response: .init(state: state))
+        presenter.present(
+            feedback: .init(
+                title: "Заказ продлен на 20 минут",
+                message: "\(moneyText(extendedOrder.totalPrice)) / \(extendedOrder.durationMinutes) мин"
             )
         )
     }
@@ -536,27 +563,74 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         )
     }
 
+    private func validatedRentalSelections(
+        _ selections: [ShiftWorkspace.RentalOrderItemInput],
+        excludingOrderID: UUID?
+    ) -> [(type: RentalType, number: Int)]? {
+        let validSelections = selections.compactMap { selection -> (type: RentalType, number: Int)? in
+            guard state.rentalTypes.indices.contains(selection.rentalTypeIndex) else { return nil }
+            guard (1...99).contains(selection.number) else { return nil }
+            return (state.rentalTypes[selection.rentalTypeIndex], selection.number)
+        }
+
+        guard !validSelections.isEmpty, validSelections.count == selections.count else {
+            presenter.present(
+                feedback: .init(
+                    title: "Не выбрано",
+                    message: "Добавьте хотя бы один объект с номером от 1 до 99."
+                )
+            )
+            return nil
+        }
+
+        if let typeWithoutTariff = validSelections.first(where: { $0.type.defaultTariff == nil })?.type {
+            presenter.present(
+                feedback: .init(
+                    title: "Тариф не настроен",
+                    message: "Для \(typeWithoutTariff.name) нет активного тарифа. Проверьте каталог точки."
+                )
+            )
+            return nil
+        }
+
+        if let duplicateInOrder = firstDuplicate(in: validSelections) {
+            presenter.present(
+                feedback: .init(
+                    title: "Повтор в заказе",
+                    message: "Объект \(duplicateInOrder.type.name) №\(duplicateInOrder.number) уже добавлен в этот заказ."
+                )
+            )
+            return nil
+        }
+
+        let activeItems = activeRentalItems(excluding: excludingOrderID)
+        if let blocked = validSelections.first(where: { selection in
+            activeItems.contains { item in
+                item.rentalTypeID == selection.type.id && item.displayNumber == selection.number
+            }
+        }) {
+            presenter.present(
+                feedback: .init(
+                    title: "Нельзя сдать",
+                    message: alreadyFloatingText(type: blocked.type, number: blocked.number)
+                )
+            )
+            return nil
+        }
+
+        return validSelections
+    }
+
     private func makeActiveRentalOrder(
         items: [(type: RentalType, number: Int)],
-        startedAt: Date
+        startedAt: Date,
+        paymentMethod: PaymentMethod
     ) -> RentalOrder? {
         guard let primaryType = items.first?.type else {
             return nil
         }
 
-        let itemSnapshots = items.map { item in
-            let tariff = item.type.defaultTariff
-            return RentalOrderItemSnapshot(
-                rentalTypeID: item.type.id,
-                rentalTypeNameSnapshot: item.type.name,
-                rentalTypeCodeSnapshot: item.type.code,
-                displayNumber: item.number,
-                rentalTariffID: tariff?.id,
-                tariffTitleSnapshot: tariff?.title,
-                tariffDurationMinutes: tariff?.durationMinutes,
-                tariffPriceSnapshot: tariff?.price
-            )
-        }
+        let itemSnapshots = makeItemSnapshots(from: items)
         let selectedTariffs = itemSnapshots.compactMap(\.tariffPriceSnapshot)
         let durationMinutes = itemSnapshots.compactMap(\.tariffDurationMinutes).max() ?? RentalTiming.fallbackDurationMinutes
         let orderName = items.count == 1 ? primaryType.name : "Смешанный заказ"
@@ -573,9 +647,73 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
             finishedAt: nil,
             durationMinutes: durationMinutes,
             totalPrice: Money.sum(selectedTariffs),
-            paymentMethod: .card,
+            paymentMethod: paymentMethod,
             status: .active
         )
+    }
+
+    private func makeEditedRentalOrder(
+        from order: RentalOrder,
+        items: [(type: RentalType, number: Int)],
+        paymentMethod: PaymentMethod
+    ) -> RentalOrder? {
+        guard let primaryType = items.first?.type else {
+            return nil
+        }
+
+        let itemSnapshots = makeItemSnapshots(from: items)
+        let totalPrice = Money
+            .sum(itemSnapshots.compactMap(\.tariffPriceSnapshot))
+            .multiplied(by: order.rentalPeriodsCount)
+        let orderName = items.count == 1 ? primaryType.name : "Смешанный заказ"
+
+        return RentalOrder(
+            id: order.id,
+            rentalTypeID: primaryType.id,
+            rentalTypeNameSnapshot: orderName,
+            rentedAssetIDs: order.rentedAssetIDs,
+            rentedAssetNumbersSnapshot: itemSnapshots.map { "\($0.displayNumber)" },
+            rentedItemsSnapshot: itemSnapshots,
+            createdAt: order.createdAt,
+            startedAt: order.startedAt,
+            expectedEndAt: order.expectedEndAt,
+            finishedAt: order.finishedAt,
+            canceledAt: order.canceledAt,
+            durationMinutes: order.durationMinutes,
+            totalPrice: totalPrice,
+            rentalPeriodsCount: order.rentalPeriodsCount,
+            paymentMethod: paymentMethod,
+            status: order.status,
+            notes: order.notes
+        )
+    }
+
+    private func makeItemSnapshots(
+        from items: [(type: RentalType, number: Int)]
+    ) -> [RentalOrderItemSnapshot] {
+        items.map { item in
+            let tariff = item.type.defaultTariff
+            return RentalOrderItemSnapshot(
+                rentalTypeID: item.type.id,
+                rentalTypeNameSnapshot: item.type.name,
+                rentalTypeCodeSnapshot: item.type.code,
+                displayNumber: item.number,
+                rentalTariffID: tariff?.id,
+                tariffTitleSnapshot: tariff?.title,
+                tariffDurationMinutes: tariff?.durationMinutes,
+                tariffPriceSnapshot: tariff?.price
+            )
+        }
+    }
+
+    private func extensionPrice(for order: RentalOrder) -> Money {
+        let snapshotPrices = order.rentedItemsSnapshot.compactMap(\.tariffPriceSnapshot)
+        if !snapshotPrices.isEmpty {
+            return Money.sum(snapshotPrices)
+        }
+
+        let completedPeriods = order.rentalPeriodsCount
+        return Money(kopecks: order.totalPrice.kopecks / completedPeriods)
     }
 
     private func firstDuplicate(
@@ -594,9 +732,11 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         return nil
     }
 
-    private func activeRentalItems() -> [RentalOrderItemSnapshot] {
+    private func activeRentalItems(excluding orderID: UUID? = nil) -> [RentalOrderItemSnapshot] {
         state.rentalOrders
-            .filter { $0.status == .active }
+            .filter { order in
+                order.status == .active && order.id != orderID
+            }
             .flatMap(\.rentedItemsSnapshot)
     }
 

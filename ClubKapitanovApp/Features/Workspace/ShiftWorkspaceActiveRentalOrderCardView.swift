@@ -1,7 +1,8 @@
 import UIKit
 
-final class ActiveRentalOrderCardView: UIView {
+final class ActiveRentalOrderCardView: UIView, UIGestureRecognizerDelegate {
     var onComplete: ((ShiftWorkspace.ActiveRentalOrderViewModel) -> Void)?
+    var onEdit: ((ShiftWorkspace.ActiveRentalOrderViewModel) -> Void)?
 
     private let viewModel: ShiftWorkspace.ActiveRentalOrderViewModel
     private let timerLabel = UILabel()
@@ -51,12 +52,15 @@ final class ActiveRentalOrderCardView: UIView {
         let startedAtLabel = UILabel()
         let itemsLabel = UILabel()
         let amountLabel = UILabel()
+        let buttonsStackView = UIStackView()
+        let editButton = UIButton(type: .system)
         let completeButton = UIButton(type: .system)
 
         backgroundColor = BrandColor.surface
         layer.cornerRadius = 18
         layer.cornerCurve = .continuous
         applySoftShadow()
+        configureCardTap()
 
         stackView.axis = .vertical
         stackView.spacing = 10
@@ -98,6 +102,11 @@ final class ActiveRentalOrderCardView: UIView {
         progressView.clipsToBounds = true
         progressView.setHeight(8)
 
+        buttonsStackView.axis = .horizontal
+        buttonsStackView.distribution = .fillEqually
+        buttonsStackView.spacing = 10
+
+        configureEditButton(editButton)
         configureCompleteButton(completeButton)
 
         addSubview(stackView)
@@ -109,12 +118,53 @@ final class ActiveRentalOrderCardView: UIView {
         stackView.addArrangedSubview(amountLabel)
         stackView.addArrangedSubview(progressView)
         stackView.addArrangedSubview(overtimeLabel)
-        stackView.addArrangedSubview(completeButton)
+        stackView.addArrangedSubview(buttonsStackView)
+
+        buttonsStackView.addArrangedSubview(editButton)
+        buttonsStackView.addArrangedSubview(completeButton)
 
         stackView.pinTop(to: topAnchor, 16)
         stackView.pinLeft(to: leadingAnchor, 18)
         stackView.pinRight(to: trailingAnchor, 18)
         stackView.pinBottom(to: bottomAnchor, 16)
+    }
+
+    private func configureCardTap() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(didTapEdit))
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.delegate = self
+        addGestureRecognizer(tapGesture)
+    }
+
+    private func configureEditButton(_ button: UIButton) {
+        configureSecondaryButton(
+            button,
+            title: viewModel.editButtonTitle,
+            systemName: "pencil"
+        )
+        button.addTarget(self, action: #selector(didTapEdit), for: .touchUpInside)
+    }
+
+    private func configureSecondaryButton(_ button: UIButton, title: String, systemName: String) {
+        let titleFont = BrandFont.demiBold(14)
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = title
+        configuration.image = UIImage(systemName: systemName)
+        configuration.imagePadding = 8
+        configuration.baseBackgroundColor = BrandColor.surfaceMuted
+        configuration.baseForegroundColor = BrandColor.primaryBlue
+        configuration.cornerStyle = .large
+        configuration.contentInsets = .init(top: 10, leading: 14, bottom: 10, trailing: 14)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = titleFont
+            return outgoing
+        }
+
+        button.configuration = configuration
+        button.titleLabel?.minimumScaleFactor = 0.82
+        button.titleLabel?.adjustsFontSizeToFitWidth = true
+        button.setHeight(42)
     }
 
     private func configureCompleteButton(_ button: UIButton) {
@@ -194,6 +244,24 @@ final class ActiveRentalOrderCardView: UIView {
         layer.shadowOpacity = 0.10
         layer.shadowRadius = 18
         layer.shadowOffset = CGSize(width: 0, height: 10)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var touchedView: UIView? = touch.view
+
+        while let view = touchedView, view !== self {
+            if view is UIControl {
+                return false
+            }
+            touchedView = view.superview
+        }
+
+        return true
+    }
+
+    @objc
+    private func didTapEdit() {
+        onEdit?(viewModel)
     }
 
     @objc

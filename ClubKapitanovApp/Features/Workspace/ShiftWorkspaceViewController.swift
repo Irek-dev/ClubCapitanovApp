@@ -68,17 +68,30 @@ extension ShiftWorkspaceViewController: ShiftWorkspacePadViewDelegate {
 
     func shiftWorkspacePadView(
         _ view: ShiftWorkspacePadView,
-        didSubmitRentalOrderItems selections: [ShiftWorkspace.RentalOrderItemInput]
+        didSubmitRentalOrderItems selections: [ShiftWorkspace.RentalOrderItemInput],
+        paymentMethod: PaymentMethod
     ) {
-        interactor.createRentalOrder(selections)
+        interactor.createRentalOrder(selections, paymentMethod: paymentMethod)
     }
 
     func shiftWorkspacePadView(
         _ view: ShiftWorkspacePadView,
-        didCompleteRentalOrder id: UUID,
+        didEditRentalOrder id: UUID,
+        selections: [ShiftWorkspace.RentalOrderItemInput],
         paymentMethod: PaymentMethod
     ) {
-        interactor.completeRentalOrder(id: id, paymentMethod: paymentMethod)
+        interactor.editRentalOrder(id: id, selections: selections, paymentMethod: paymentMethod)
+    }
+
+    func shiftWorkspacePadView(
+        _ view: ShiftWorkspacePadView,
+        didCompleteRentalOrder id: UUID
+    ) {
+        interactor.completeRentalOrder(id: id)
+    }
+
+    func shiftWorkspacePadView(_ view: ShiftWorkspacePadView, didExtendRentalOrder id: UUID) {
+        interactor.extendRentalOrder(id: id)
     }
 
     func shiftWorkspacePadView(
