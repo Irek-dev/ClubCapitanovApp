@@ -6,6 +6,8 @@ import Foundation
 /// Само создание смены остается в Interactor.
 protocol OpenShiftPresentationLogic {
     func present(response: OpenShift.Load.Response)
+    func present(response: OpenShift.CatalogLoad.Response)
+    func present(response: OpenShift.CatalogLoad.ErrorResponse)
 }
 
 final class OpenShiftPresenter: OpenShiftPresentationLogic {
@@ -20,5 +22,13 @@ final class OpenShiftPresenter: OpenShiftPresentationLogic {
                 buttonTitle: "Открыть смену"
             )
         )
+    }
+
+    func present(response: OpenShift.CatalogLoad.Response) {
+        viewController?.displayLoading(isLoading: response.isLoading)
+    }
+
+    func present(response: OpenShift.CatalogLoad.ErrorResponse) {
+        viewController?.displayError(message: "Не удалось загрузить каталоги. Проверьте интернет и попробуйте снова.")
     }
 }

@@ -12,6 +12,7 @@ enum OpenShiftAssembly {
             point: point,
             user: user,
             shiftRepository: container.shiftRepository,
+            catalogRepository: container.catalogRepository,
             dateProvider: container.dateProvider,
             presenter: presenter,
             router: router

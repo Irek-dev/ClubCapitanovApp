@@ -6,6 +6,8 @@ import UIKit
 /// Вся логика открытия/переиспользования смены находится в Interactor.
 protocol OpenShiftDisplayLogic: AnyObject {
     func display(viewModel: OpenShift.Load.ViewModel)
+    func displayLoading(isLoading: Bool)
+    func displayError(message: String)
 }
 
 final class OpenShiftViewController: UIViewController {
@@ -16,6 +18,7 @@ final class OpenShiftViewController: UIViewController {
     private let pointLabel = UILabel()
     private let employeeLabel = UILabel()
     private let openShiftButton = UIButton(type: .system)
+    private var defaultButtonTitle = "Открыть смену"
 
     init(interactor: OpenShiftBusinessLogic) {
         self.interactor = interactor
@@ -123,6 +126,22 @@ extension OpenShiftViewController: OpenShiftDisplayLogic {
         titleLabel.text = viewModel.title
         pointLabel.text = viewModel.pointText
         employeeLabel.text = viewModel.employeeText
+        defaultButtonTitle = viewModel.buttonTitle
         openShiftButton.configuration?.title = viewModel.buttonTitle
+    }
+
+    func displayLoading(isLoading: Bool) {
+        openShiftButton.isEnabled = !isLoading
+        openShiftButton.configuration?.title = isLoading ? "Загрузка каталогов..." : defaultButtonTitle
+    }
+
+    func displayError(message: String) {
+        let alert = UIAlertController(
+            title: "Смену нельзя открыть",
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "ОК", style: .default))
+        present(alert, animated: true)
     }
 }

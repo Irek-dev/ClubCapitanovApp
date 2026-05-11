@@ -14,6 +14,7 @@ struct RentalOrderItemSnapshot: Hashable, Codable, Sendable {
     let tariffTitleSnapshot: String?
     let tariffDurationMinutes: Int?
     let tariffPriceSnapshot: Money?
+    let payrollRateSnapshot: Money?
 
     init(
         rentalTypeID: UUID,
@@ -23,7 +24,8 @@ struct RentalOrderItemSnapshot: Hashable, Codable, Sendable {
         rentalTariffID: UUID? = nil,
         tariffTitleSnapshot: String? = nil,
         tariffDurationMinutes: Int? = nil,
-        tariffPriceSnapshot: Money? = nil
+        tariffPriceSnapshot: Money? = nil,
+        payrollRateSnapshot: Money? = nil
     ) {
         self.rentalTypeID = rentalTypeID
         self.rentalTypeNameSnapshot = rentalTypeNameSnapshot
@@ -33,5 +35,6 @@ struct RentalOrderItemSnapshot: Hashable, Codable, Sendable {
         self.tariffTitleSnapshot = tariffTitleSnapshot
         self.tariffDurationMinutes = tariffDurationMinutes
         self.tariffPriceSnapshot = tariffPriceSnapshot
+        self.payrollRateSnapshot = payrollRateSnapshot
     }
 }

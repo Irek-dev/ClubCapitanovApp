@@ -28,6 +28,50 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         static let extensionMinutes = 20
     }
 
+    private enum CloseShiftSaving {
+        static let timeoutNanoseconds: UInt64 = 12_000_000_000
+    }
+
+    private enum CloseShiftSaveError: LocalizedError {
+        case noInternet
+        case timeout
+
+        var errorDescription: String? {
+            userMessage
+        }
+
+        var userMessage: String {
+            switch self {
+            case .noInternet:
+                return "Нет интернета. Смену нельзя закрыть."
+            case .timeout:
+                return "Сохранение отчета заняло больше 12 секунд. Смена осталась открытой."
+            }
+        }
+    }
+
+    @MainActor
+    private final class SaveContinuationGate {
+        private var didResume = false
+
+        func resume(
+            _ continuation: CheckedContinuation<Void, Error>,
+            with result: Result<Void, Error>
+        ) -> Bool {
+            guard !didResume else { return false }
+            didResume = true
+
+            switch result {
+            case .success:
+                continuation.resume(returning: ())
+            case let .failure(error):
+                continuation.resume(throwing: error)
+            }
+
+            return true
+        }
+    }
+
     /// Локальный state экрана. После каждой операции он синхронизируется с
     /// `ShiftRepository`, чтобы будущий persistence-слой мог сохранять изменения
     /// без переписывания UI.
@@ -35,20 +79,27 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
     private let authRepository: AuthRepository
     private let shiftRepository: ShiftRepository
     private let reportRepository: ReportRepository
+    private let shiftReportWriter: FirebaseShiftReportWriting
+    private let connectivityChecker: ConnectivityChecking
     private let buildShiftCloseReportUseCase: BuildShiftCloseReportUseCase
     private let dateProvider: DateProviding
     private let presenter: ShiftWorkspacePresentationLogic
     private let router: ShiftWorkspaceRoutingLogic
     private let moneyFormatter = RubleMoneyFormatter()
+    private var isClosingShift = false
+    private var activeCloseShiftAttemptID: UUID?
 
     init(
         shift: Shift,
         rentalTypes: [RentalType],
         souvenirProducts: [SouvenirProduct],
         fineTemplates: [FineTemplate],
+        batteryItems: [BatteryItem],
         authRepository: AuthRepository,
         shiftRepository: ShiftRepository,
         reportRepository: ReportRepository,
+        shiftReportWriter: FirebaseShiftReportWriting,
+        connectivityChecker: ConnectivityChecking,
         buildShiftCloseReportUseCase: BuildShiftCloseReportUseCase,
         dateProvider: DateProviding,
         presenter: ShiftWorkspacePresentationLogic,
@@ -59,6 +110,7 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
             rentalTypes: rentalTypes,
             souvenirProducts: souvenirProducts,
             fineTemplates: fineTemplates,
+            batteryItems: batteryItems,
             rentalOrders: shift.rentalOrders,
             souvenirSales: shift.souvenirSales,
             fines: shift.fines,
@@ -67,6 +119,8 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
         self.authRepository = authRepository
         self.shiftRepository = shiftRepository
         self.reportRepository = reportRepository
+        self.shiftReportWriter = shiftReportWriter
+        self.connectivityChecker = connectivityChecker
         self.buildShiftCloseReportUseCase = buildShiftCloseReportUseCase
         self.dateProvider = dateProvider
         self.presenter = presenter
@@ -96,7 +150,25 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
             return
         }
 
-        guard let user = authRepository.getUser(pinCode: normalizedPIN) else {
+        authRepository.getUser(pinCode: normalizedPIN) { [weak self] result in
+            guard let self else { return }
+
+            switch result {
+            case let .success(user):
+                self.addParticipantIfAllowed(user)
+            case let .failure(error):
+                self.presenter.present(
+                    feedback: .init(
+                        title: "PIN не проверен",
+                        message: self.authErrorMessage(error)
+                    )
+                )
+            }
+        }
+    }
+
+    private func addParticipantIfAllowed(_ user: User?) {
+        guard let user else {
             presenter.present(
                 feedback: .init(
                     title: "Сотрудник не найден",
@@ -149,6 +221,15 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
                 message: user.fullName
             )
         )
+    }
+
+    private func authErrorMessage(_ error: Error) -> String {
+        if let repositoryError = error as? FirebaseUserRepositoryError,
+           let description = repositoryError.errorDescription {
+            return description
+        }
+
+        return "Не удалось проверить сотрудника. Проверьте интернет и попробуйте снова."
     }
 
     func removeParticipant(id: UUID) {
@@ -379,6 +460,10 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
     }
 
     func closeShift(manualInput: ShiftCloseReportManualInput) {
+        guard !isClosingShift else {
+            return
+        }
+
         guard state.rentalOrders.allSatisfy({ $0.status != .active }) else {
             presenter.present(
                 feedback: .init(
@@ -389,19 +474,38 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
             return
         }
 
-        // Перед закрытием сохраняем операции, фиксируем итоговый snapshot, затем
-        // меняем статус смены. После этого Router сбрасывает flow на Login.
+        guard connectivityChecker.hasInternetConnection else {
+            presenter.present(
+                feedback: .init(
+                    title: "Смена не закрыта",
+                    message: CloseShiftSaveError.noInternet.userMessage
+                )
+            )
+            return
+        }
+
+        // Перед закрытием сохраняем операции, фиксируем итоговый snapshot и пишем
+        // отчет в Firestore. Статус смены меняется только после успешной записи.
         persistCurrentOperations()
         let closedAt = dateProvider.now
+        let attemptID = UUID()
         let closeReport = buildShiftCloseReportUseCase.execute(
             shift: state.shift,
             manualInput: manualInput,
             createdAt: closedAt,
             createdByUserID: currentEmployeeID
         )
-        reportRepository.saveCloseReport(closeReport)
-        _ = shiftRepository.closeShift(id: state.shift.id, closedAt: closedAt)
-        router.routeToLogin()
+        let payload = makeFirebaseShiftReportWritePayload(from: closeReport)
+        isClosingShift = true
+        activeCloseShiftAttemptID = attemptID
+
+        Task {
+            await self.saveShiftReportToFirestoreAndClose(
+                payload: payload,
+                closedAt: closedAt,
+                attemptID: attemptID
+            )
+        }
     }
 
     private var currentEmployeeID: UUID {
@@ -416,6 +520,121 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
                 fines: state.fines
             )
         )
+    }
+
+    private func makeFirebaseShiftReportWritePayload(
+        from report: ShiftCloseReport
+    ) -> FirebaseShiftReportWritePayload {
+        let userNameSnapshotsByUserID = makeUserNameSnapshotsByUserID()
+
+        return FirebaseShiftReportWritePayload(
+            report: report,
+            rentalOrders: state.rentalOrders,
+            souvenirSales: state.souvenirSales,
+            fines: state.fines,
+            batteryItems: state.batteryItems,
+            pointNameSnapshot: state.shift.point.name,
+            createdByUserNameSnapshot: userNameSnapshotsByUserID[report.createdByUserID],
+            userNameSnapshotsByUserID: userNameSnapshotsByUserID
+        )
+    }
+
+    private func makeUserNameSnapshotsByUserID() -> [UUID: String] {
+        var snapshots: [UUID: String] = [:]
+
+        if let userRepository = authRepository as? AdminUserRepository {
+            userRepository.getAllUsers(includeArchived: true).forEach { user in
+                snapshots[user.id] = user.fullName
+            }
+        }
+
+        state.shift.participants.forEach { participant in
+            snapshots[participant.userID] = participant.displayNameSnapshot
+        }
+
+        return snapshots
+    }
+
+    private func saveShiftReportToFirestoreAndClose(
+        payload: FirebaseShiftReportWritePayload,
+        closedAt: Date,
+        attemptID: UUID
+    ) async {
+        do {
+            guard connectivityChecker.hasInternetConnection else {
+                throw CloseShiftSaveError.noInternet
+            }
+
+            try await saveShiftReportWithTimeout(payload)
+            guard isActiveCloseShiftAttempt(attemptID) else {
+                return
+            }
+
+            reportRepository.saveCloseReport(payload.report)
+            _ = shiftRepository.closeShift(id: payload.report.shiftID, closedAt: closedAt)
+            isClosingShift = false
+            activeCloseShiftAttemptID = nil
+            router.routeToLogin()
+        } catch {
+            guard isActiveCloseShiftAttempt(attemptID) else {
+                return
+            }
+
+            isClosingShift = false
+            activeCloseShiftAttemptID = nil
+            presenter.present(
+                feedback: .init(
+                    title: "Смена не закрыта",
+                    message: closeShiftSaveFailureMessage(error)
+                )
+            )
+        }
+    }
+
+    private func saveShiftReportWithTimeout(
+        _ payload: FirebaseShiftReportWritePayload
+    ) async throws {
+        let writer = shiftReportWriter
+        let gate = SaveContinuationGate()
+
+        try await withCheckedThrowingContinuation { continuation in
+            let saveTask = Task { @MainActor in
+                do {
+                    try await writer.saveShiftReport(payload)
+                    _ = gate.resume(continuation, with: .success(()))
+                } catch {
+                    _ = gate.resume(continuation, with: .failure(error))
+                }
+            }
+
+            Task { @MainActor in
+                do {
+                    try await Task.sleep(nanoseconds: CloseShiftSaving.timeoutNanoseconds)
+                    if gate.resume(continuation, with: .failure(CloseShiftSaveError.timeout)) {
+                        saveTask.cancel()
+                    }
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func isActiveCloseShiftAttempt(_ attemptID: UUID) -> Bool {
+        isClosingShift && activeCloseShiftAttemptID == attemptID
+    }
+
+    private func closeShiftSaveFailureMessage(_ error: Error) -> String {
+        if let closeShiftError = error as? CloseShiftSaveError {
+            return closeShiftError.userMessage
+        }
+
+        let description = error.localizedDescription
+        guard !description.isEmpty else {
+            return "Не удалось сохранить отчет в Firebase. Проверьте подключение и попробуйте снова."
+        }
+
+        return "Не удалось сохранить отчет в Firebase. Смена осталась открытой. \(description)"
     }
 
     private func changeSouvenirQuantity(
@@ -701,7 +920,8 @@ final class ShiftWorkspaceInteractor: ShiftWorkspaceBusinessLogic {
                 rentalTariffID: tariff?.id,
                 tariffTitleSnapshot: tariff?.title,
                 tariffDurationMinutes: tariff?.durationMinutes,
-                tariffPriceSnapshot: tariff?.price
+                tariffPriceSnapshot: tariff?.price,
+                payrollRateSnapshot: item.type.payrollRate
             )
         }
     }

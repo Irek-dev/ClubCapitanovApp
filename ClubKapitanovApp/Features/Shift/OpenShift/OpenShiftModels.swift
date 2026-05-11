@@ -18,4 +18,14 @@ enum OpenShift {
             let buttonTitle: String
         }
     }
+
+    enum CatalogLoad {
+        struct Response {
+            let isLoading: Bool
+        }
+
+        struct ErrorResponse {
+            let error: Error
+        }
+    }
 }

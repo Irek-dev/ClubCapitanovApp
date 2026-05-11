@@ -23,11 +23,26 @@ final class PointSelectionPresenter: PointSelectionPresentationLogic {
             )
         }
 
+        let emptyText: String
+        let showsRetry: Bool
+        switch response.state {
+        case .loading:
+            emptyText = "Загрузка точек..."
+            showsRetry = false
+        case .loaded:
+            emptyText = "Для этого пользователя нет доступных активных точек."
+            showsRetry = false
+        case .failed:
+            emptyText = "Не удалось загрузить точки. Проверьте интернет и попробуйте снова."
+            showsRetry = true
+        }
+
         viewController?.display(
             viewModel: .init(
                 title: "Выберите рабочую точку",
                 subtitle: "Сотрудник: \(response.user.fullName)",
-                emptyText: "Для этого пользователя нет доступных активных точек.",
+                emptyText: emptyText,
+                showsRetry: showsRetry,
                 points: points
             )
         )

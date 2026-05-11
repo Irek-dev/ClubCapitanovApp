@@ -2,17 +2,21 @@ import UIKit
 
 final class AdminPointSelectionViewController: UIViewController {
     private let adminUser: User
-    private let pointRepository: PointRepository
+    private let pointRepository: AdminPointRepository
     private let container: AppDIContainer
     private var points: [Point] = []
 
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let tableView = UITableView(frame: .zero, style: .plain)
+    private let stateContainerView = UIView()
+    private let stateStackView = UIStackView()
+    private let stateLabel = UILabel()
+    private let retryButton = UIButton(type: .system)
 
     init(
         adminUser: User,
-        pointRepository: PointRepository,
+        pointRepository: AdminPointRepository,
         container: AppDIContainer
     ) {
         self.adminUser = adminUser
@@ -30,8 +34,7 @@ final class AdminPointSelectionViewController: UIViewController {
         super.viewDidLoad()
         configureUI()
         setupConstraints()
-        points = pointRepository.getAvailablePoints(for: adminUser)
-        tableView.reloadData()
+        loadPoints()
     }
 
     private func configureUI() {
@@ -55,6 +58,26 @@ final class AdminPointSelectionViewController: UIViewController {
         tableView.delegate = self
         tableView.register(AdminPointCell.self, forCellReuseIdentifier: AdminPointCell.reuseIdentifier)
 
+        stateStackView.axis = .vertical
+        stateStackView.alignment = .center
+        stateStackView.spacing = 12
+
+        stateLabel.textColor = BrandColor.textSecondary
+        stateLabel.font = BrandFont.regular(16)
+        stateLabel.textAlignment = .center
+        stateLabel.numberOfLines = 0
+
+        retryButton.setTitle("Повторить загрузку", for: .normal)
+        retryButton.titleLabel?.font = BrandFont.demiBold(16)
+        retryButton.tintColor = BrandColor.primaryBlue
+        retryButton.addTarget(self, action: #selector(didTapRetry), for: .touchUpInside)
+
+        stateContainerView.backgroundColor = BrandColor.clear
+        stateContainerView.addSubview(stateStackView)
+        stateStackView.addArrangedSubview(stateLabel)
+        stateStackView.addArrangedSubview(retryButton)
+        tableView.backgroundView = stateContainerView
+
         view.addSubview(titleLabel)
         view.addSubview(subtitleLabel)
         view.addSubview(tableView)
@@ -73,6 +96,57 @@ final class AdminPointSelectionViewController: UIViewController {
         tableView.pinLeft(to: view.leadingAnchor)
         tableView.pinRight(to: view.trailingAnchor)
         tableView.pinBottom(to: view.bottomAnchor)
+
+        stateStackView.pinCenterY(to: stateContainerView)
+        stateStackView.pinLeft(to: stateContainerView.leadingAnchor, 24)
+        stateStackView.pinRight(to: stateContainerView.trailingAnchor, 24)
+    }
+
+    private func loadPoints() {
+        stateLabel.text = "Загрузка точек..."
+        retryButton.isHidden = true
+        tableView.backgroundView?.isHidden = false
+        pointRepository.refreshPoints { [weak self] in
+            guard let self else { return }
+            self.points = self.pointRepository.getAvailablePoints(for: self.adminUser)
+            self.renderState()
+        }
+    }
+
+    private func renderState() {
+        tableView.reloadData()
+
+        if pointRepository.lastLoadError != nil {
+            stateLabel.text = "Не удалось загрузить точки. Проверьте интернет и попробуйте снова."
+            retryButton.isHidden = false
+            tableView.backgroundView?.isHidden = false
+        } else if points.isEmpty {
+            stateLabel.text = "Точек пока нет"
+            retryButton.isHidden = true
+            tableView.backgroundView?.isHidden = false
+        } else {
+            tableView.backgroundView?.isHidden = true
+        }
+    }
+
+    private func pushAdminPanel(point: Point) {
+        let destination = AdminPanelViewController(
+            point: point,
+            userRepository: container.adminUserRepository,
+            adminPointCatalogRepository: container.adminPointCatalogRepository
+        )
+        navigationController?.pushViewController(destination, animated: true)
+    }
+
+    private func showMessage(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "ОК", style: .default))
+        present(alert, animated: true)
+    }
+
+    @objc
+    private func didTapRetry() {
+        loadPoints()
     }
 }
 
@@ -100,12 +174,17 @@ extension AdminPointSelectionViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
         guard points.indices.contains(indexPath.row) else { return }
 
-        let destination = AdminPanelViewController(
-            point: points[indexPath.row],
-            authRepository: container.authRepository,
-            catalogRepository: container.catalogRepository
-        )
-        navigationController?.pushViewController(destination, animated: true)
+        let point = points[indexPath.row]
+        pointRepository.ensurePointDocument(point) { [weak self] result in
+            guard let self else { return }
+
+            switch result {
+            case .success:
+                self.pushAdminPanel(point: point)
+            case let .failure(error):
+                self.showMessage(title: "Точка недоступна", message: error.localizedDescription)
+            }
+        }
     }
 }
 

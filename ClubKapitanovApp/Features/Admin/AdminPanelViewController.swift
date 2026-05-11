@@ -6,27 +6,29 @@ final class AdminPanelViewController: UIViewController {
         case souvenirs
         case fines
         case rentals
+        case batteries
     }
 
     private let point: Point
-    private let authRepository: AuthRepository
-    private let catalogRepository: CatalogRepository
+    private let userRepository: AdminUserRepository
+    private let adminPointCatalogRepository: AdminPointCatalogRepository
     private let moneyFormatter = RubleMoneyFormatter()
 
     private let pointLabel = UILabel()
-    private let segmentedControl = UISegmentedControl(items: ["Сотрудники", "Сувенирка", "Штрафы", "Прокат"])
+    private let segmentedControl = UISegmentedControl(items: ["Сотрудники", "Сувенирка", "Штрафы", "Прокат", "Батарейки"])
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
 
     init(
         point: Point,
-        authRepository: AuthRepository,
-        catalogRepository: CatalogRepository
+        userRepository: AdminUserRepository,
+        adminPointCatalogRepository: AdminPointCatalogRepository
     ) {
         self.point = point
-        self.authRepository = authRepository
-        self.catalogRepository = catalogRepository
+        self.userRepository = userRepository
+        self.adminPointCatalogRepository = adminPointCatalogRepository
         super.init(nibName: nil, bundle: nil)
+        adminPointCatalogRepository.configurePointContext(point)
     }
 
     @available(*, unavailable)
@@ -112,29 +114,36 @@ final class AdminPanelViewController: UIViewController {
             renderFines()
         case .rentals:
             renderRentals()
+        case .batteries:
+            renderBatteries()
         }
     }
 
     private func refreshDataIfNeeded() {
-        if let authRepository = authRepository as? AuthRepositoryCacheRefreshing {
-            authRepository.refreshUsers { [weak self] in
-                self?.render()
-            }
+        userRepository.refreshUsers { [weak self] in
+            self?.render()
         }
 
-        if let catalogRepository = catalogRepository as? CatalogRepositoryCacheRefreshing {
-            catalogRepository.refreshCatalog(pointID: point.id) { [weak self] in
-                self?.render()
-            }
+        adminPointCatalogRepository.refreshSouvenirs(pointID: point.id) { [weak self] in
+            self?.render()
+        }
+        adminPointCatalogRepository.refreshRentalTypes(pointID: point.id) { [weak self] in
+            self?.render()
+        }
+        adminPointCatalogRepository.refreshFineTemplates(pointID: point.id) { [weak self] in
+            self?.render()
+        }
+        adminPointCatalogRepository.refreshBatteryTypes(pointID: point.id) { [weak self] in
+            self?.render()
         }
     }
 
     private func renderEmployees() {
-        let employees = authRepository
+        let employees = userRepository
             .getAllUsers(includeArchived: false)
             .filter { $0.role != .admin }
 
-        stackView.addArrangedSubview(makeIntroLabel("Глобальный список сотрудников. PIN генерируется автоматически и проверяется в общем AuthRepository."))
+        stackView.addArrangedSubview(makeIntroLabel("Глобальный список сотрудников. PIN генерируется случайно и хранится в Firebase."))
         stackView.addArrangedSubview(
             makeActionButton(
                 title: "Добавить сотрудника",
@@ -145,7 +154,17 @@ final class AdminPanelViewController: UIViewController {
         )
 
         let cardStack = makeCardStack(title: "Сотрудники")
-        if employees.isEmpty {
+        if userRepository.lastLoadError != nil {
+            cardStack.addArrangedSubview(makeSecondaryLabel("Не удалось загрузить сотрудников. Проверьте интернет и попробуйте снова."))
+            cardStack.addArrangedSubview(
+                makeActionButton(
+                    title: "Повторить загрузку",
+                    systemName: "arrow.clockwise",
+                    color: BrandColor.primaryBlue,
+                    action: #selector(didTapRetryEmployees)
+                )
+            )
+        } else if employees.isEmpty {
             cardStack.addArrangedSubview(makeSecondaryLabel("Сотрудников пока нет"))
         } else {
             employees.forEach { user in
@@ -156,7 +175,7 @@ final class AdminPanelViewController: UIViewController {
     }
 
     private func renderSouvenirs() {
-        let products = catalogRepository.getSouvenirProducts(pointID: point.id)
+        let products = adminPointCatalogRepository.getSouvenirProducts(pointID: point.id)
 
         stackView.addArrangedSubview(makeIntroLabel("Каталог сувенирки для выбранной точки. Изменения не затрагивают другие точки."))
         stackView.addArrangedSubview(
@@ -169,8 +188,18 @@ final class AdminPanelViewController: UIViewController {
         )
 
         let cardStack = makeCardStack(title: "Сувенирка \(point.name)")
-        if products.isEmpty {
-            cardStack.addArrangedSubview(makeSecondaryLabel("Сувенирка на этой точке пока не создана"))
+        if adminPointCatalogRepository.lastSouvenirsLoadError != nil {
+            cardStack.addArrangedSubview(makeSecondaryLabel("Не удалось загрузить сувенирку. Проверьте интернет и попробуйте снова."))
+            cardStack.addArrangedSubview(
+                makeActionButton(
+                    title: "Повторить загрузку",
+                    systemName: "arrow.clockwise",
+                    color: BrandColor.accentOrange,
+                    action: #selector(didTapRetrySouvenirs)
+                )
+            )
+        } else if products.isEmpty {
+            cardStack.addArrangedSubview(makeSecondaryLabel("Сувенирки пока нет"))
         } else {
             products.forEach { product in
                 cardStack.addArrangedSubview(makeSouvenirRow(product))
@@ -180,9 +209,9 @@ final class AdminPanelViewController: UIViewController {
     }
 
     private func renderFines() {
-        let templates = catalogRepository.getFineTemplates(pointID: point.id)
+        let templates = adminPointCatalogRepository.getFineTemplates(pointID: point.id)
 
-        stackView.addArrangedSubview(makeIntroLabel("Шаблоны штрафов для выбранной точки. Сотрудники будут видеть только активные шаблоны."))
+        stackView.addArrangedSubview(makeIntroLabel("Штрафы выбранной точки. Сотрудники увидят этот список в рабочей смене."))
         stackView.addArrangedSubview(
             makeActionButton(
                 title: "Добавить штраф",
@@ -193,8 +222,18 @@ final class AdminPanelViewController: UIViewController {
         )
 
         let cardStack = makeCardStack(title: "Штрафы \(point.name)")
-        if templates.isEmpty {
-            cardStack.addArrangedSubview(makeSecondaryLabel("Штрафы на этой точке пока не настроены"))
+        if adminPointCatalogRepository.lastFineTemplatesLoadError != nil {
+            cardStack.addArrangedSubview(makeSecondaryLabel("Не удалось загрузить штрафы. Проверьте интернет и попробуйте снова."))
+            cardStack.addArrangedSubview(
+                makeActionButton(
+                    title: "Повторить загрузку",
+                    systemName: "arrow.clockwise",
+                    color: BrandColor.error,
+                    action: #selector(didTapRetryFines)
+                )
+            )
+        } else if templates.isEmpty {
+            cardStack.addArrangedSubview(makeSecondaryLabel("Штрафов пока нет"))
         } else {
             templates.forEach { template in
                 cardStack.addArrangedSubview(makeFineRow(template))
@@ -204,47 +243,71 @@ final class AdminPanelViewController: UIViewController {
     }
 
     private func renderRentals() {
-        let rentalTypes = catalogRepository.getRentalTypes(pointID: point.id)
-        let rentalAssets = catalogRepository.getRentalAssets(pointID: point.id)
+        let rentalTypes = adminPointCatalogRepository.getRentalTypes(pointID: point.id)
 
-        stackView.addArrangedSubview(makeIntroLabel("Каталог проката точки: типы корабликов, цена за базовый период и конкретные номера объектов."))
+        stackView.addArrangedSubview(makeIntroLabel("Кораблики точки: цена, базовый период, ставка ЗП и количество доступных штук."))
 
         let rentalTypeButton = makeActionButton(
-            title: "Добавить тип проката",
+            title: "Добавить кораблик",
             systemName: "sailboat",
             color: BrandColor.primaryBlue,
             action: #selector(didTapAddRentalType)
         )
-        let rentalAssetButton = makeActionButton(
-            title: "Добавить объект",
-            systemName: "plus",
-            color: BrandColor.accentOrange,
-            action: #selector(didTapAddRentalAsset)
-        )
         stackView.addArrangedSubview(rentalTypeButton)
-        stackView.addArrangedSubview(rentalAssetButton)
 
-        let typeCardStack = makeCardStack(title: "Типы проката")
-        if rentalTypes.isEmpty {
-            typeCardStack.addArrangedSubview(makeSecondaryLabel("Типы проката пока не настроены"))
+        let typeCardStack = makeCardStack(title: "Кораблики")
+        if adminPointCatalogRepository.lastRentalTypesLoadError != nil {
+            typeCardStack.addArrangedSubview(makeSecondaryLabel("Не удалось загрузить прокат. Проверьте интернет и попробуйте снова."))
+            typeCardStack.addArrangedSubview(
+                makeActionButton(
+                    title: "Повторить загрузку",
+                    systemName: "arrow.clockwise",
+                    color: BrandColor.primaryBlue,
+                    action: #selector(didTapRetryRentals)
+                )
+            )
+        } else if rentalTypes.isEmpty {
+            typeCardStack.addArrangedSubview(makeSecondaryLabel("Корабликов пока нет"))
         } else {
             rentalTypes.forEach { rentalType in
-                let assetsCount = rentalAssets.filter { $0.rentalTypeID == rentalType.id }.count
-                typeCardStack.addArrangedSubview(makeRentalTypeRow(rentalType, assetsCount: assetsCount))
+                typeCardStack.addArrangedSubview(makeRentalTypeRow(rentalType))
             }
         }
         stackView.addArrangedSubview(makeShadowCard(containing: typeCardStack))
+    }
 
-        let assetsCardStack = makeCardStack(title: "Объекты проката")
-        if rentalAssets.isEmpty {
-            assetsCardStack.addArrangedSubview(makeSecondaryLabel("Объекты проката пока не добавлены"))
+    private func renderBatteries() {
+        let batteries = adminPointCatalogRepository.getBatteryItems(pointID: point.id)
+
+        stackView.addArrangedSubview(makeIntroLabel("Батарейки выбранной точки и текущий учетный остаток."))
+        stackView.addArrangedSubview(
+            makeActionButton(
+                title: "Добавить батарейку",
+                systemName: "battery.100percent",
+                color: BrandColor.primaryBlue,
+                action: #selector(didTapAddBattery)
+            )
+        )
+
+        let cardStack = makeCardStack(title: "Батарейки \(point.name)")
+        if adminPointCatalogRepository.lastBatteryTypesLoadError != nil {
+            cardStack.addArrangedSubview(makeSecondaryLabel("Не удалось загрузить батарейки. Проверьте интернет и попробуйте снова."))
+            cardStack.addArrangedSubview(
+                makeActionButton(
+                    title: "Повторить загрузку",
+                    systemName: "arrow.clockwise",
+                    color: BrandColor.primaryBlue,
+                    action: #selector(didTapRetryBatteries)
+                )
+            )
+        } else if batteries.isEmpty {
+            cardStack.addArrangedSubview(makeSecondaryLabel("Батареек пока нет"))
         } else {
-            rentalAssets.forEach { asset in
-                let rentalType = rentalTypes.first { $0.id == asset.rentalTypeID }
-                assetsCardStack.addArrangedSubview(makeRentalAssetRow(asset, rentalType: rentalType))
+            batteries.forEach { battery in
+                cardStack.addArrangedSubview(makeBatteryRow(battery))
             }
         }
-        stackView.addArrangedSubview(makeShadowCard(containing: assetsCardStack))
+        stackView.addArrangedSubview(makeShadowCard(containing: cardStack))
     }
 
     private func makeEmployeeRow(_ user: User) -> UIView {
@@ -254,7 +317,7 @@ final class AdminPanelViewController: UIViewController {
         let nameLabel = makePrimaryLabel(user.fullName)
         let detailLabel = makeSecondaryLabel("PIN \(user.pinCode) · \(roleTitle(user.role))")
         let editButton = makeIconButton(systemName: "pencil", color: BrandColor.primaryBlue)
-        let archiveButton = makeIconButton(systemName: "archivebox", color: BrandColor.error)
+        let deleteButton = makeIconButton(systemName: "trash", color: BrandColor.error)
 
         labelsStackView.axis = .vertical
         labelsStackView.spacing = 3
@@ -264,10 +327,10 @@ final class AdminPanelViewController: UIViewController {
         actionsStackView.axis = .horizontal
         actionsStackView.spacing = 8
         actionsStackView.addArrangedSubview(editButton)
-        actionsStackView.addArrangedSubview(archiveButton)
+        actionsStackView.addArrangedSubview(deleteButton)
 
         editButton.addAction(UIAction { [weak self] _ in self?.showEmployeeForm(user: user) }, for: .touchUpInside)
-        archiveButton.addAction(UIAction { [weak self] _ in self?.confirmArchive(user: user) }, for: .touchUpInside)
+        deleteButton.addAction(UIAction { [weak self] _ in self?.confirmDelete(user: user) }, for: .touchUpInside)
 
         rowView.addSubview(labelsStackView)
         rowView.addSubview(actionsStackView)
@@ -288,10 +351,10 @@ final class AdminPanelViewController: UIViewController {
         let labelsStackView = UIStackView()
         let actionsStackView = UIStackView()
         let titleLabel = makePrimaryLabel(product.name)
-        let quantity = catalogRepository.getSouvenirQuantity(productID: product.id, pointID: point.id)
+        let quantity = adminPointCatalogRepository.getSouvenirQuantity(productID: product.id, pointID: point.id)
         let detailLabel = makeSecondaryLabel("\(moneyFormatter.string(from: product.price, includesCurrencySymbol: true)) · \(quantity) шт.")
         let editButton = makeIconButton(systemName: "pencil", color: BrandColor.primaryBlue)
-        let hideButton = makeIconButton(systemName: "eye.slash", color: BrandColor.error)
+        let deleteButton = makeIconButton(systemName: "trash", color: BrandColor.error)
 
         labelsStackView.axis = .vertical
         labelsStackView.spacing = 3
@@ -301,10 +364,10 @@ final class AdminPanelViewController: UIViewController {
         actionsStackView.axis = .horizontal
         actionsStackView.spacing = 8
         actionsStackView.addArrangedSubview(editButton)
-        actionsStackView.addArrangedSubview(hideButton)
+        actionsStackView.addArrangedSubview(deleteButton)
 
         editButton.addAction(UIAction { [weak self] _ in self?.showSouvenirForm(product: product) }, for: .touchUpInside)
-        hideButton.addAction(UIAction { [weak self] _ in self?.confirmHide(product: product) }, for: .touchUpInside)
+        deleteButton.addAction(UIAction { [weak self] _ in self?.confirmDelete(product: product) }, for: .touchUpInside)
 
         rowView.addSubview(labelsStackView)
         rowView.addSubview(actionsStackView)
@@ -327,35 +390,32 @@ final class AdminPanelViewController: UIViewController {
             editColor: BrandColor.primaryBlue,
             deleteColor: BrandColor.error,
             onEdit: { [weak self] in self?.showFineForm(template: template) },
-            onDelete: { [weak self] in self?.confirmHide(template: template) }
+            onDelete: { [weak self] in self?.confirmDelete(template: template) }
         )
     }
 
-    private func makeRentalTypeRow(_ rentalType: RentalType, assetsCount: Int) -> UIView {
+    private func makeRentalTypeRow(_ rentalType: RentalType) -> UIView {
         let tariff = rentalType.defaultTariff
         let price = tariff.map { moneyFormatter.string(from: $0.price, includesCurrencySymbol: true) } ?? "нет цены"
         let duration = tariff.map { "\($0.durationMinutes) мин" } ?? "нет периода"
         return makeEditableRow(
             title: rentalType.name,
-            detail: "\(price) · \(duration) · \(assetsCount) шт.",
+            detail: "\(price) · \(duration) · \(rentalType.availableQuantity) шт. · ЗП \(moneyFormatter.string(from: rentalType.payrollRate, includesCurrencySymbol: true))",
             editColor: BrandColor.primaryBlue,
             deleteColor: BrandColor.error,
             onEdit: { [weak self] in self?.showRentalTypeForm(rentalType: rentalType) },
-            onDelete: { [weak self] in self?.confirmHide(rentalType: rentalType) }
+            onDelete: { [weak self] in self?.confirmDelete(rentalType: rentalType) }
         )
     }
 
-    private func makeRentalAssetRow(_ asset: RentalAsset, rentalType: RentalType?) -> UIView {
-        let title = [rentalType?.name, asset.displayNumber]
-            .compactMap { $0 }
-            .joined(separator: " ")
-        return makeEditableRow(
-            title: title,
-            detail: "Объект проката",
+    private func makeBatteryRow(_ item: BatteryItem) -> UIView {
+        makeEditableRow(
+            title: item.title,
+            detail: "\(item.quantity) шт.",
             editColor: BrandColor.primaryBlue,
             deleteColor: BrandColor.error,
-            onEdit: { [weak self] in self?.showRentalAssetForm(asset: asset, rentalTypeID: asset.rentalTypeID) },
-            onDelete: { [weak self] in self?.confirmHide(asset: asset, rentalType: rentalType) }
+            onEdit: { [weak self] in self?.showBatteryForm(item: item) },
+            onDelete: { [weak self] in self?.confirmDelete(battery: item) }
         )
     }
 
@@ -373,7 +433,7 @@ final class AdminPanelViewController: UIViewController {
         let titleLabel = makePrimaryLabel(title)
         let detailLabel = makeSecondaryLabel(detail)
         let editButton = makeIconButton(systemName: "pencil", color: editColor)
-        let deleteButton = makeIconButton(systemName: "eye.slash", color: deleteColor)
+        let deleteButton = makeIconButton(systemName: "trash", color: deleteColor)
 
         labelsStackView.axis = .vertical
         labelsStackView.spacing = 3
@@ -518,6 +578,41 @@ final class AdminPanelViewController: UIViewController {
     }
 
     @objc
+    private func didTapRetryEmployees() {
+        userRepository.refreshUsers { [weak self] in
+            self?.render()
+        }
+    }
+
+    @objc
+    private func didTapRetrySouvenirs() {
+        adminPointCatalogRepository.refreshSouvenirs(pointID: point.id) { [weak self] in
+            self?.render()
+        }
+    }
+
+    @objc
+    private func didTapRetryFines() {
+        adminPointCatalogRepository.refreshFineTemplates(pointID: point.id) { [weak self] in
+            self?.render()
+        }
+    }
+
+    @objc
+    private func didTapRetryRentals() {
+        adminPointCatalogRepository.refreshRentalTypes(pointID: point.id) { [weak self] in
+            self?.render()
+        }
+    }
+
+    @objc
+    private func didTapRetryBatteries() {
+        adminPointCatalogRepository.refreshBatteryTypes(pointID: point.id) { [weak self] in
+            self?.render()
+        }
+    }
+
+    @objc
     private func didTapAddSouvenir() {
         showSouvenirForm(product: nil)
     }
@@ -533,80 +628,93 @@ final class AdminPanelViewController: UIViewController {
     }
 
     @objc
-    private func didTapAddRentalAsset() {
-        showRentalAssetTypePicker()
+    private func didTapAddBattery() {
+        showBatteryForm(item: nil)
     }
 }
 
 private extension AdminPanelViewController {
     func showEmployeeForm(user: User?) {
-        let alert = UIAlertController(
+        let form = AdminFormViewController(
             title: user == nil ? "Новый сотрудник" : "Редактировать сотрудника",
-            message: user == nil ? "PIN будет создан автоматически." : "PIN сотрудника не меняется.",
-            preferredStyle: .alert
-        )
-        alert.addTextField { textField in
-            textField.placeholder = "Фамилия"
-            textField.text = user?.lastName
-        }
-        alert.addTextField { textField in
-            textField.placeholder = "Имя"
-            textField.text = user?.firstName
-        }
-
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(
-            UIAlertAction(title: user == nil ? "Добавить" : "Сохранить", style: .default) { [weak self, weak alert] _ in
+            subtitle: user == nil ? "PIN будет создан случайно." : "PIN сотрудника не меняется.",
+            fields: [
+                .init(key: "lastName", placeholder: "Фамилия", text: user?.lastName),
+                .init(key: "firstName", placeholder: "Имя", text: user?.firstName)
+            ],
+            submitTitle: user == nil ? "Добавить" : "Сохранить",
+            submitColor: BrandColor.primaryBlue
+        ) { [weak self] values in
                 guard let self else { return }
-                let lastName = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let firstName = alert?.textFields?.dropFirst().first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let lastName = values["lastName"] ?? ""
+                let firstName = values["firstName"] ?? ""
                 guard !lastName.isEmpty, !firstName.isEmpty else {
                     self.showMessage(title: "Не сохранено", message: "Заполните имя и фамилию.")
                     return
                 }
 
                 if let user {
-                    _ = self.authRepository.updateUser(
-                        User(
-                            id: user.id,
-                            pinCode: user.pinCode,
-                            firstName: firstName,
-                            lastName: lastName,
-                            role: user.role,
-                            accountStatus: user.accountStatus,
-                            managedPointID: user.managedPointID
-                        )
+                    let updatedUser = User(
+                        id: user.id,
+                        pinCode: user.pinCode,
+                        firstName: firstName,
+                        lastName: lastName,
+                        role: user.role,
+                        accountStatus: user.accountStatus,
+                        managedPointID: user.managedPointID
                     )
-                    self.render()
+                    self.userRepository.updateUser(updatedUser) { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case .success:
+                            self.render()
+                        case let .failure(error):
+                            self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                        }
+                    }
                 } else {
-                    let createdUser = self.authRepository.createUser(
+                    self.userRepository.createUser(
                         firstName: firstName,
                         lastName: lastName,
                         role: .staff
-                    )
-                    self.render()
-                    self.showMessage(
-                        title: "Сотрудник добавлен",
-                        message: "PIN: \(createdUser.pinCode)"
-                    )
+                    ) { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case let .success(createdUser):
+                            self.render()
+                            self.showMessage(
+                                title: "Сотрудник добавлен",
+                                message: "PIN: \(createdUser.pinCode)"
+                            )
+                        case let .failure(error):
+                            self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                        }
+                    }
                 }
-            }
-        )
+        }
 
-        present(alert, animated: true)
+        present(form, animated: true)
     }
 
-    func confirmArchive(user: User) {
+    func confirmDelete(user: User) {
         let alert = UIAlertController(
-            title: "Архивировать сотрудника?",
-            message: "\(user.fullName) больше не сможет войти по PIN \(user.pinCode).",
+            title: "Удалить сотрудника?",
+            message: "\(user.fullName) будет полностью удален и больше не сможет войти по PIN \(user.pinCode).",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
         alert.addAction(
-            UIAlertAction(title: "Архивировать", style: .destructive) { [weak self] _ in
-                self?.authRepository.archiveUser(id: user.id)
-                self?.render()
+            UIAlertAction(title: "Удалить", style: .destructive) { [weak self] _ in
+                guard let self else { return }
+                self.userRepository.deleteUser(id: user.id) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.render()
+                    case let .failure(error):
+                        self.showMessage(title: "Не удалено", message: error.localizedDescription)
+                    }
+                }
             }
         )
         present(alert, animated: true)
@@ -614,43 +722,30 @@ private extension AdminPanelViewController {
 
     func showSouvenirForm(product: SouvenirProduct?) {
         let quantity = product.map {
-            catalogRepository.getSouvenirQuantity(productID: $0.id, pointID: point.id)
+            adminPointCatalogRepository.getSouvenirQuantity(productID: $0.id, pointID: point.id)
         } ?? 0
-        let alert = UIAlertController(
+        let form = AdminFormViewController(
             title: product == nil ? "Новый сувенир" : "Редактировать сувенир",
-            message: "Каталог точки: \(point.name)",
-            preferredStyle: .alert
-        )
-        alert.addTextField { textField in
-            textField.placeholder = "Название"
-            textField.text = product?.name
-        }
-        alert.addTextField { textField in
-            textField.placeholder = "Цена, ₽"
-            textField.keyboardType = .decimalPad
-            textField.text = product.map { self.moneyFormatter.string(from: $0.price) }
-        }
-        alert.addTextField { textField in
-            textField.placeholder = "Количество"
-            textField.keyboardType = .numberPad
-            textField.text = "\(quantity)"
-        }
-
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(
-            UIAlertAction(title: product == nil ? "Добавить" : "Сохранить", style: .default) { [weak self, weak alert] _ in
+            subtitle: "Точка: \(point.name)",
+            fields: [
+                .init(key: "name", placeholder: "Название", text: product?.name),
+                .init(key: "price", placeholder: "Цена, ₽", text: product.map { moneyFormatter.string(from: $0.price) }, keyboardType: .decimalPad),
+                .init(key: "quantity", placeholder: "Количество", text: "\(quantity)", keyboardType: .numberPad)
+            ],
+            submitTitle: product == nil ? "Добавить" : "Сохранить",
+            submitColor: BrandColor.accentOrange
+        ) { [weak self] values in
                 guard let self else { return }
-                let name = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let price = self.parseRubles(alert?.textFields?.dropFirst().first?.text)
-                let quantityText = alert?.textFields?.dropFirst(2).first?.text ?? "0"
-                let quantity = Int(quantityText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1
+                let name = values["name"] ?? ""
+                let price = self.parseRubles(values["price"])
+                let quantity = Int(values["quantity"] ?? "") ?? -1
                 guard !name.isEmpty, let price, quantity >= 0 else {
                     self.showMessage(title: "Не сохранено", message: "Проверьте название, цену и количество.")
                     return
                 }
 
                 if let product {
-                    _ = self.catalogRepository.updateSouvenirProduct(
+                    self.adminPointCatalogRepository.updateSouvenirProduct(
                         SouvenirProduct(
                             id: product.id,
                             pointID: product.pointID,
@@ -660,68 +755,81 @@ private extension AdminPanelViewController {
                             sortOrder: product.sortOrder
                         ),
                         quantity: quantity
-                    )
+                    ) { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case .success:
+                            self.render()
+                        case let .failure(error):
+                            self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                        }
+                    }
                 } else {
-                    _ = self.catalogRepository.createSouvenirProduct(
+                    self.adminPointCatalogRepository.createSouvenirProduct(
                         pointID: self.point.id,
                         name: name,
                         price: price,
                         quantity: quantity
-                    )
+                    ) { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case .success:
+                            self.render()
+                        case let .failure(error):
+                            self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                        }
+                    }
                 }
-                self.render()
-            }
-        )
+        }
 
-        present(alert, animated: true)
+        present(form, animated: true)
     }
 
-    func confirmHide(product: SouvenirProduct) {
+    func confirmDelete(product: SouvenirProduct) {
         let alert = UIAlertController(
-            title: "Скрыть сувенир?",
-            message: "\(product.name) исчезнет из каталога точки \(point.name).",
+            title: "Удалить сувенир?",
+            message: "\(product.name) будет полностью удален из каталога точки \(point.name).",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
         alert.addAction(
-            UIAlertAction(title: "Скрыть", style: .destructive) { [weak self] _ in
+            UIAlertAction(title: "Удалить", style: .destructive) { [weak self] _ in
                 guard let self else { return }
-                self.catalogRepository.hideSouvenirProduct(id: product.id, pointID: self.point.id)
-                self.render()
+                self.adminPointCatalogRepository.deleteSouvenirProduct(id: product.id, pointID: self.point.id) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.render()
+                    case let .failure(error):
+                        self.showMessage(title: "Не удалено", message: error.localizedDescription)
+                    }
+                }
             }
         )
         present(alert, animated: true)
     }
 
     func showFineForm(template: FineTemplate?) {
-        let alert = UIAlertController(
+        let form = AdminFormViewController(
             title: template == nil ? "Новый штраф" : "Редактировать штраф",
-            message: "Шаблон для точки: \(point.name)",
-            preferredStyle: .alert
-        )
-        alert.addTextField { textField in
-            textField.placeholder = "Название"
-            textField.text = template?.title
-        }
-        alert.addTextField { textField in
-            textField.placeholder = "Сумма, ₽"
-            textField.keyboardType = .decimalPad
-            textField.text = template.map { self.moneyFormatter.string(from: $0.amount) }
-        }
-
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(
-            UIAlertAction(title: template == nil ? "Добавить" : "Сохранить", style: .default) { [weak self, weak alert] _ in
+            subtitle: "Точка: \(point.name)",
+            fields: [
+                .init(key: "title", placeholder: "Название штрафа", text: template?.title),
+                .init(key: "amount", placeholder: "Сумма, ₽", text: template.map { moneyFormatter.string(from: $0.amount) }, keyboardType: .decimalPad)
+            ],
+            submitTitle: template == nil ? "Добавить" : "Сохранить",
+            submitColor: BrandColor.error
+        ) { [weak self] values in
                 guard let self else { return }
-                let title = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let amount = self.parseRubles(alert?.textFields?.dropFirst().first?.text)
+                let title = values["title"] ?? ""
+                let amount = self.parseRubles(values["amount"])
                 guard !title.isEmpty, let amount else {
                     self.showMessage(title: "Не сохранено", message: "Проверьте название и сумму штрафа.")
                     return
                 }
 
                 if let template {
-                    _ = self.catalogRepository.updateFineTemplate(
+                    self.adminPointCatalogRepository.updateFineTemplate(
                         FineTemplate(
                             id: template.id,
                             pointID: template.pointID,
@@ -730,33 +838,54 @@ private extension AdminPanelViewController {
                             isActive: template.isActive,
                             sortOrder: template.sortOrder
                         )
-                    )
+                    ) { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case .success:
+                            self.render()
+                        case let .failure(error):
+                            self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                        }
+                    }
                 } else {
-                    _ = self.catalogRepository.createFineTemplate(
+                    self.adminPointCatalogRepository.createFineTemplate(
                         pointID: self.point.id,
                         title: title,
                         amount: amount
-                    )
+                    ) { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case .success:
+                            self.render()
+                        case let .failure(error):
+                            self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                        }
+                    }
                 }
-                self.render()
-            }
-        )
+        }
 
-        present(alert, animated: true)
+        present(form, animated: true)
     }
 
-    func confirmHide(template: FineTemplate) {
+    func confirmDelete(template: FineTemplate) {
         let alert = UIAlertController(
-            title: "Скрыть штраф?",
-            message: "\(template.title) исчезнет из списка штрафов точки \(point.name).",
+            title: "Удалить штраф?",
+            message: "\(template.title) будет полностью удален из списка штрафов точки \(point.name).",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
         alert.addAction(
-            UIAlertAction(title: "Скрыть", style: .destructive) { [weak self] _ in
+            UIAlertAction(title: "Удалить", style: .destructive) { [weak self] _ in
                 guard let self else { return }
-                self.catalogRepository.hideFineTemplate(id: template.id, pointID: self.point.id)
-                self.render()
+                self.adminPointCatalogRepository.deleteFineTemplate(id: template.id, pointID: self.point.id) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.render()
+                    case let .failure(error):
+                        self.showMessage(title: "Не удалено", message: error.localizedDescription)
+                    }
+                }
             }
         )
         present(alert, animated: true)
@@ -764,43 +893,30 @@ private extension AdminPanelViewController {
 
     func showRentalTypeForm(rentalType: RentalType?) {
         let defaultTariff = rentalType?.defaultTariff
-        let alert = UIAlertController(
-            title: rentalType == nil ? "Новый тип проката" : "Редактировать тип",
-            message: "Цена и период используются для новых заказов и продлений.",
-            preferredStyle: .alert
-        )
-        alert.addTextField { textField in
-            textField.placeholder = "Название, например Утка"
-            textField.text = rentalType?.name
-        }
-        alert.addTextField { textField in
-            textField.placeholder = "Код, например duck"
-            textField.text = rentalType?.code
-            textField.autocapitalizationType = .none
-        }
-        alert.addTextField { textField in
-            textField.placeholder = "Период, минут"
-            textField.keyboardType = .numberPad
-            textField.text = defaultTariff.map { "\($0.durationMinutes)" } ?? "20"
-        }
-        alert.addTextField { textField in
-            textField.placeholder = "Цена, ₽"
-            textField.keyboardType = .decimalPad
-            textField.text = defaultTariff.map { self.moneyFormatter.string(from: $0.price) }
-        }
-
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(
-            UIAlertAction(title: rentalType == nil ? "Добавить" : "Сохранить", style: .default) { [weak self, weak alert] _ in
+        let form = AdminFormViewController(
+            title: rentalType == nil ? "Новый кораблик" : "Редактировать кораблик",
+            subtitle: "Цена, период, ЗП и количество используются для рабочего каталога точки.",
+            fields: [
+                .init(key: "name", placeholder: "Название, например Утка", text: rentalType?.name),
+                .init(key: "code", placeholder: "Короткий код, например duck", text: rentalType?.code, autocapitalizationType: .none),
+                .init(key: "price", placeholder: "Цена за период, ₽", text: defaultTariff.map { moneyFormatter.string(from: $0.price) }, keyboardType: .decimalPad),
+                .init(key: "duration", placeholder: "Длительность периода, минут", text: defaultTariff.map { "\($0.durationMinutes)" } ?? "20", keyboardType: .numberPad),
+                .init(key: "payroll", placeholder: "Ставка ЗП, ₽", text: rentalType.map { moneyFormatter.string(from: $0.payrollRate) } ?? "50", keyboardType: .decimalPad),
+                .init(key: "quantity", placeholder: "Количество доступных штук", text: rentalType.map { "\($0.availableQuantity)" } ?? "1", keyboardType: .numberPad)
+            ],
+            submitTitle: rentalType == nil ? "Добавить" : "Сохранить",
+            submitColor: BrandColor.primaryBlue
+        ) { [weak self] values in
                 guard let self else { return }
-                let fields = alert?.textFields ?? []
-                let name = fields[safe: 0]?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let code = self.normalizedCode(fields[safe: 1]?.text, fallbackName: name)
-                let duration = Int(fields[safe: 2]?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 0
-                let price = self.parseRubles(fields[safe: 3]?.text)
+                let name = values["name"] ?? ""
+                let code = self.normalizedCode(values["code"], fallbackName: name)
+                let price = self.parseRubles(values["price"])
+                let duration = Int(values["duration"] ?? "") ?? 0
+                let payrollRate = self.parseRubles(values["payroll"])
+                let quantity = Int(values["quantity"] ?? "") ?? -1
 
-                guard !name.isEmpty, !code.isEmpty, duration > 0, let price else {
-                    self.showMessage(title: "Не сохранено", message: "Проверьте название, код, период и цену.")
+                guard !name.isEmpty, !code.isEmpty, let price, duration > 0, let payrollRate, quantity >= 0 else {
+                    self.showMessage(title: "Не сохранено", message: "Проверьте название, код, цену, период, ставку ЗП и количество.")
                     return
                 }
 
@@ -814,134 +930,149 @@ private extension AdminPanelViewController {
                         sortOrder: oldTariff?.sortOrder ?? 0,
                         isActive: oldTariff?.isActive ?? true
                     )
-                    _ = self.catalogRepository.updateRentalType(
+                    self.adminPointCatalogRepository.updateRentalType(
                         RentalType(
                             id: rentalType.id,
                             pointID: rentalType.pointID,
                             name: name,
                             code: code,
                             tariffs: [updatedTariff],
+                            payrollRate: payrollRate,
+                            availableQuantity: quantity,
                             isActive: rentalType.isActive
                         )
-                    )
+                    ) { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case .success:
+                            self.render()
+                        case let .failure(error):
+                            self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                        }
+                    }
                 } else {
-                    _ = self.catalogRepository.createRentalType(
+                    self.adminPointCatalogRepository.createRentalType(
                         pointID: self.point.id,
                         name: name,
                         code: code,
                         durationMinutes: duration,
-                        price: price
-                    )
+                        price: price,
+                        payrollRate: payrollRate,
+                        quantity: quantity
+                    ) { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case .success:
+                            self.render()
+                        case let .failure(error):
+                            self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                        }
+                    }
                 }
-                self.render()
-            }
-        )
+        }
 
-        present(alert, animated: true)
+        present(form, animated: true)
     }
 
-    func confirmHide(rentalType: RentalType) {
+    func confirmDelete(rentalType: RentalType) {
         let alert = UIAlertController(
-            title: "Скрыть тип проката?",
-            message: "\(rentalType.name) и его объекты исчезнут из рабочего каталога точки \(point.name).",
+            title: "Удалить кораблик?",
+            message: "\(rentalType.name) будет полностью удален из проката точки \(point.name).",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
         alert.addAction(
-            UIAlertAction(title: "Скрыть", style: .destructive) { [weak self] _ in
+            UIAlertAction(title: "Удалить", style: .destructive) { [weak self] _ in
                 guard let self else { return }
-                self.catalogRepository.hideRentalType(id: rentalType.id, pointID: self.point.id)
-                self.render()
+                self.adminPointCatalogRepository.deleteRentalType(id: rentalType.id, pointID: self.point.id) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.render()
+                    case let .failure(error):
+                        self.showMessage(title: "Не удалено", message: error.localizedDescription)
+                    }
+                }
             }
         )
         present(alert, animated: true)
     }
 
-    func showRentalAssetTypePicker() {
-        let rentalTypes = catalogRepository.getRentalTypes(pointID: point.id)
-        guard !rentalTypes.isEmpty else {
-            showMessage(title: "Нет типов проката", message: "Сначала добавьте тип проката.")
-            return
-        }
-
-        let alert = UIAlertController(
-            title: "Выберите тип",
-            message: "К какому типу относится новый объект?",
-            preferredStyle: .alert
-        )
-        rentalTypes.forEach { rentalType in
-            alert.addAction(
-                UIAlertAction(title: rentalType.name, style: .default) { [weak self] _ in
-                    self?.showRentalAssetForm(asset: nil, rentalTypeID: rentalType.id)
-                }
-            )
-        }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        present(alert, animated: true)
-    }
-
-    func showRentalAssetForm(asset: RentalAsset?, rentalTypeID: UUID) {
-        let rentalType = catalogRepository.getRentalTypes(pointID: point.id).first { $0.id == rentalTypeID }
-        let alert = UIAlertController(
-            title: asset == nil ? "Новый объект" : "Редактировать объект",
-            message: rentalType.map { "Тип: \($0.name)" },
-            preferredStyle: .alert
-        )
-        alert.addTextField { textField in
-            textField.placeholder = "Номер, например 12 или У-12"
-            textField.keyboardType = .numbersAndPunctuation
-            textField.text = asset?.displayNumber
-        }
-
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(
-            UIAlertAction(title: asset == nil ? "Добавить" : "Сохранить", style: .default) { [weak self, weak alert] _ in
-                guard let self else { return }
-                let number = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                guard !number.isEmpty else {
-                    self.showMessage(title: "Не сохранено", message: "Введите номер объекта.")
-                    return
-                }
-
-                if let asset {
-                    _ = self.catalogRepository.updateRentalAsset(
-                        RentalAsset(
-                            id: asset.id,
-                            pointID: asset.pointID,
-                            rentalTypeID: rentalTypeID,
-                            displayNumber: number,
-                            isActive: asset.isActive
-                        )
-                    )
-                } else {
-                    _ = self.catalogRepository.createRentalAsset(
-                        pointID: self.point.id,
-                        rentalTypeID: rentalTypeID,
-                        displayNumber: number
-                    )
-                }
-                self.render()
+    func showBatteryForm(item: BatteryItem?) {
+        let form = AdminFormViewController(
+            title: item == nil ? "Новая батарейка" : "Редактировать батарейку",
+            subtitle: "Точка: \(point.name)",
+            fields: [
+                .init(key: "title", placeholder: "Название батарейки", text: item?.title),
+                .init(key: "quantity", placeholder: "Количество", text: item.map { "\($0.quantity)" } ?? "0", keyboardType: .numberPad)
+            ],
+            submitTitle: item == nil ? "Добавить" : "Сохранить",
+            submitColor: BrandColor.primaryBlue
+        ) { [weak self] values in
+            guard let self else { return }
+            let title = values["title"] ?? ""
+            let quantity = Int(values["quantity"] ?? "") ?? -1
+            guard !title.isEmpty, quantity >= 0 else {
+                self.showMessage(title: "Не сохранено", message: "Проверьте название и количество.")
+                return
             }
-        )
 
-        present(alert, animated: true)
+            if let item {
+                self.adminPointCatalogRepository.updateBatteryItem(
+                    BatteryItem(
+                        id: item.id,
+                        pointID: item.pointID,
+                        title: title,
+                        quantity: quantity
+                    )
+                ) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.render()
+                    case let .failure(error):
+                        self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                    }
+                }
+            } else {
+                self.adminPointCatalogRepository.createBatteryItem(
+                    pointID: self.point.id,
+                    title: title,
+                    quantity: quantity
+                ) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.render()
+                    case let .failure(error):
+                        self.showMessage(title: "Не сохранено", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+
+        present(form, animated: true)
     }
 
-    func confirmHide(asset: RentalAsset, rentalType: RentalType?) {
-        let title = [rentalType?.name, asset.displayNumber]
-            .compactMap { $0 }
-            .joined(separator: " ")
+    func confirmDelete(battery: BatteryItem) {
         let alert = UIAlertController(
-            title: "Скрыть объект?",
-            message: "\(title) исчезнет из рабочего каталога точки \(point.name).",
+            title: "Удалить батарейку?",
+            message: "\(battery.title) будет полностью удалена из списка точки \(point.name).",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
         alert.addAction(
-            UIAlertAction(title: "Скрыть", style: .destructive) { [weak self] _ in
+            UIAlertAction(title: "Удалить", style: .destructive) { [weak self] _ in
                 guard let self else { return }
-                self.catalogRepository.hideRentalAsset(id: asset.id, pointID: self.point.id)
-                self.render()
+                self.adminPointCatalogRepository.deleteBatteryItem(id: battery.id, pointID: self.point.id) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.render()
+                    case let .failure(error):
+                        self.showMessage(title: "Не удалено", message: error.localizedDescription)
+                    }
+                }
             }
         )
         present(alert, animated: true)

@@ -20,7 +20,7 @@ struct BuildShiftPayrollSummaryUseCase {
             .filter { $0.status == .completed }
             .sorted { ($0.finishedAt ?? $0.startedAt) < ($1.finishedAt ?? $1.startedAt) }
         let totalTripsCount = completedOrders.reduce(0) { $0 + $1.billableTripsCount }
-        let totalFund = Constants.ratePerCompletedTrip.multiplied(by: totalTripsCount)
+        let totalFund = Money.sum(completedOrders.map(payrollAmount))
         var amountsByParticipantID: [UUID: Money] = [:]
         var participatedTripsByParticipantID: [UUID: Int] = [:]
 
@@ -49,7 +49,7 @@ struct BuildShiftPayrollSummaryUseCase {
             }
 
             distribute(
-                amount: Constants.ratePerCompletedTrip.multiplied(by: order.billableTripsCount),
+                amount: payrollAmount(for: order),
                 between: activeParticipants,
                 amountsByParticipantID: &amountsByParticipantID
             )
@@ -122,6 +122,15 @@ struct BuildShiftPayrollSummaryUseCase {
                 kopecks: baseShare + extraKopeck
             )
         }
+    }
+
+    private func payrollAmount(for order: RentalOrder) -> Money {
+        let rates = order.rentedItemsSnapshot.compactMap(\.payrollRateSnapshot)
+        guard !rates.isEmpty else {
+            return Constants.ratePerCompletedTrip.multiplied(by: order.billableTripsCount)
+        }
+
+        return Money.sum(rates).multiplied(by: order.rentalPeriodsCount)
     }
 
     private func effectiveEndDate(for participant: ShiftParticipant, closedAt: Date) -> Date {

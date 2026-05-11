@@ -154,7 +154,7 @@ final class ShiftWorkspaceContentFactory {
             weatherTitle: "Погода",
             weatherPlaceholder: "Например: ясно, +20",
             equipmentRows: closeEquipmentRows(in: state),
-            batteryRows: closeBatteryRows(),
+            batteryRows: closeBatteryRows(in: state),
             dismissButtonTitle: "Отмена",
             confirmButtonTitle: "Закрыть смену"
         )
@@ -358,17 +358,9 @@ final class ShiftWorkspaceContentFactory {
         }
     }
 
-    private func closeBatteryRows() -> [ShiftWorkspace.CloseShiftManualRowViewModel] {
-        [
-            "Kweller",
-            "Ladda",
-            "LiitoKala серые",
-            "LiitoKala желтые",
-            "Chameleon",
-            "Rexant",
-            "Космос"
-        ].map { title in
-            .init(title: title, placeholder: "0")
+    private func closeBatteryRows(in state: ShiftWorkspace.State) -> [ShiftWorkspace.CloseShiftManualRowViewModel] {
+        state.batteryItems.map { item in
+            .init(title: item.title, placeholder: "0")
         }
     }
 
