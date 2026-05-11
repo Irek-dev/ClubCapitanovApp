@@ -7,9 +7,16 @@ import Foundation
 /// отсекает раньше на Login-экране.
 final class InMemoryPointRepository: PointRepository {
     private let points: [Point]
+    var lastLoadError: Error? { nil }
 
     init(points: [Point] = InMemoryFixtures.points) {
         self.points = points
+    }
+
+    func refreshPoints(completion: @escaping () -> Void) {
+        DispatchQueue.main.async {
+            completion()
+        }
     }
 
     func getAvailablePoints(for user: User) -> [Point] {

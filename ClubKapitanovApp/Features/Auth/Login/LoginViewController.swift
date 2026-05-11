@@ -29,7 +29,6 @@ final class LoginViewController: UIViewController {
     private let loginButton = UIButton(type: .system)
     private let adminModeButton = UIButton(type: .system)
     private let messageLabel = UILabel()
-    private var scrollViewBottomConstraint: NSLayoutConstraint?
     private var isKeyboardVisible = false
     private var isAdminMode = false
     private var keyboardObserverTokens: [NSObjectProtocol] = []
@@ -251,7 +250,7 @@ final class LoginViewController: UIViewController {
         scrollView.pinTop(to: view.topAnchor)
         scrollView.pinLeft(to: view.leadingAnchor)
         scrollView.pinRight(to: view.trailingAnchor)
-        scrollViewBottomConstraint = scrollView.pinBottom(to: view.bottomAnchor)
+        scrollView.pinBottom(to: view.bottomAnchor)
 
         contentView.pinTop(to: scrollView.contentLayoutGuide.topAnchor)
         contentView.pinLeft(to: scrollView.contentLayoutGuide.leadingAnchor)
@@ -309,13 +308,12 @@ final class LoginViewController: UIViewController {
     }
 
     private func updateForKeyboard(height: CGFloat, transition: KeyboardTransition) {
-        // На iPad клавиатура может перекрыть PIN-поле. Экран временно включает scroll
-        // и поднимает нижнюю границу scrollView на высоту перекрытия.
         isKeyboardVisible = height > 0
 
         scrollView.isScrollEnabled = isKeyboardVisible
         scrollView.alwaysBounceVertical = false
-        scrollViewBottomConstraint?.constant = -height
+        scrollView.contentInset.bottom = height
+        scrollView.verticalScrollIndicatorInsets.bottom = height
 
         transition.animate { [weak self] in
             guard let self else { return }
@@ -323,10 +321,10 @@ final class LoginViewController: UIViewController {
 
             if self.isKeyboardVisible {
                 let focusedField = self.passwordField.isFirstResponder ? self.passwordField : self.pinField
-                let pinFieldRect = focusedField
-                    .convert(focusedField.bounds, to: self.contentView)
+                let focusedRect = focusedField
+                    .convert(focusedField.bounds, to: self.scrollView)
                     .insetBy(dx: 0, dy: -18)
-                self.scrollView.scrollRectToVisible(pinFieldRect, animated: false)
+                self.scrollView.scrollRectToVisible(focusedRect, animated: false)
             } else {
                 self.scrollView.setContentOffset(.zero, animated: false)
             }

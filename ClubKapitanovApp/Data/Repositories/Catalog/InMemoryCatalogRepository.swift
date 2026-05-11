@@ -13,6 +13,7 @@ final class InMemoryCatalogRepository: CatalogRepository {
         var souvenirProducts: [SouvenirProduct]
         var souvenirQuantityByID: [UUID: Int]
         var fineTemplates: [FineTemplate]
+        var batteryItems: [BatteryItem]
     }
 
     private var catalogByPointID: [UUID: CatalogBundle] = [:]
@@ -33,9 +34,12 @@ final class InMemoryCatalogRepository: CatalogRepository {
                     price: price,
                     sortOrder: 0
                 )
-            ]
+            ],
+            payrollRate: Money(kopecks: 5_000),
+            availableQuantity: 1
         )
         currentBundle.rentalTypes.append(rentalType)
+        currentBundle = syncRentalAssets(for: rentalType, in: currentBundle)
         catalogByPointID[pointID] = currentBundle
         return rentalType
     }
@@ -44,40 +48,25 @@ final class InMemoryCatalogRepository: CatalogRepository {
         var currentBundle = bundle(for: rentalType.pointID)
         guard let index = currentBundle.rentalTypes.firstIndex(where: { $0.id == rentalType.id }) else {
             currentBundle.rentalTypes.append(rentalType)
+            currentBundle = syncRentalAssets(for: rentalType, in: currentBundle)
             catalogByPointID[rentalType.pointID] = currentBundle
             return rentalType
         }
 
         currentBundle.rentalTypes[index] = rentalType
+        currentBundle = syncRentalAssets(for: rentalType, in: currentBundle)
         catalogByPointID[rentalType.pointID] = currentBundle
         return rentalType
     }
 
     func hideRentalType(id: UUID, pointID: UUID) {
-        var currentBundle = bundle(for: pointID)
-        guard let index = currentBundle.rentalTypes.firstIndex(where: { $0.id == id }) else {
-            return
-        }
+        deleteRentalType(id: id, pointID: pointID)
+    }
 
-        let rentalType = currentBundle.rentalTypes[index]
-        currentBundle.rentalTypes[index] = RentalType(
-            id: rentalType.id,
-            pointID: rentalType.pointID,
-            name: rentalType.name,
-            code: rentalType.code,
-            tariffs: rentalType.tariffs,
-            isActive: false
-        )
-        currentBundle.rentalAssets = currentBundle.rentalAssets.map { asset in
-            guard asset.rentalTypeID == id else { return asset }
-            return RentalAsset(
-                id: asset.id,
-                pointID: asset.pointID,
-                rentalTypeID: asset.rentalTypeID,
-                displayNumber: asset.displayNumber,
-                isActive: false
-            )
-        }
+    func deleteRentalType(id: UUID, pointID: UUID) {
+        var currentBundle = bundle(for: pointID)
+        currentBundle.rentalTypes.removeAll { $0.id == id }
+        currentBundle.rentalAssets.removeAll { $0.rentalTypeID == id }
         catalogByPointID[pointID] = currentBundle
     }
 
@@ -164,20 +153,13 @@ final class InMemoryCatalogRepository: CatalogRepository {
     }
 
     func hideSouvenirProduct(id: UUID, pointID: UUID) {
-        var currentBundle = bundle(for: pointID)
-        guard let index = currentBundle.souvenirProducts.firstIndex(where: { $0.id == id }) else {
-            return
-        }
+        deleteSouvenirProduct(id: id, pointID: pointID)
+    }
 
-        let product = currentBundle.souvenirProducts[index]
-        currentBundle.souvenirProducts[index] = SouvenirProduct(
-            id: product.id,
-            pointID: product.pointID,
-            name: product.name,
-            price: product.price,
-            isActive: false,
-            sortOrder: product.sortOrder
-        )
+    func deleteSouvenirProduct(id: UUID, pointID: UUID) {
+        var currentBundle = bundle(for: pointID)
+        currentBundle.souvenirProducts.removeAll { $0.id == id }
+        currentBundle.souvenirQuantityByID[id] = nil
         catalogByPointID[pointID] = currentBundle
     }
 
@@ -219,20 +201,43 @@ final class InMemoryCatalogRepository: CatalogRepository {
     }
 
     func hideFineTemplate(id: UUID, pointID: UUID) {
+        deleteFineTemplate(id: id, pointID: pointID)
+    }
+
+    func deleteFineTemplate(id: UUID, pointID: UUID) {
         var currentBundle = bundle(for: pointID)
-        guard let index = currentBundle.fineTemplates.firstIndex(where: { $0.id == id }) else {
-            return
+        currentBundle.fineTemplates.removeAll { $0.id == id }
+        catalogByPointID[pointID] = currentBundle
+    }
+
+    func getBatteryItems(pointID: UUID) -> [BatteryItem] {
+        bundle(for: pointID).batteryItems.sorted { $0.title < $1.title }
+    }
+
+    func createBatteryItem(pointID: UUID, title: String, quantity: Int) -> BatteryItem {
+        var currentBundle = bundle(for: pointID)
+        let item = BatteryItem(pointID: pointID, title: title, quantity: quantity)
+        currentBundle.batteryItems.append(item)
+        catalogByPointID[pointID] = currentBundle
+        return item
+    }
+
+    func updateBatteryItem(_ item: BatteryItem) -> BatteryItem {
+        var currentBundle = bundle(for: item.pointID)
+        guard let index = currentBundle.batteryItems.firstIndex(where: { $0.id == item.id }) else {
+            currentBundle.batteryItems.append(item)
+            catalogByPointID[item.pointID] = currentBundle
+            return item
         }
 
-        let template = currentBundle.fineTemplates[index]
-        currentBundle.fineTemplates[index] = FineTemplate(
-            id: template.id,
-            pointID: template.pointID,
-            title: template.title,
-            amount: template.amount,
-            isActive: false,
-            sortOrder: template.sortOrder
-        )
+        currentBundle.batteryItems[index] = item
+        catalogByPointID[item.pointID] = currentBundle
+        return item
+    }
+
+    func deleteBatteryItem(id: UUID, pointID: UUID) {
+        var currentBundle = bundle(for: pointID)
+        currentBundle.batteryItems.removeAll { $0.id == id }
         catalogByPointID[pointID] = currentBundle
     }
 
@@ -247,25 +252,30 @@ final class InMemoryCatalogRepository: CatalogRepository {
             pointID: pointID,
             name: "Утка",
             code: "duck",
-            tariffs: makeDefaultRentalTariffs()
+            tariffs: makeDefaultRentalTariffs(),
+            availableQuantity: 6
         )
         let sailType = RentalType(
             pointID: pointID,
             name: "Парусная яхта",
             code: "sail",
-            tariffs: makeDefaultRentalTariffs()
+            tariffs: makeDefaultRentalTariffs(),
+            availableQuantity: 4
         )
         let boatType = RentalType(
             pointID: pointID,
             name: "Катер",
             code: "boat",
-            tariffs: makeDefaultRentalTariffs()
+            tariffs: makeDefaultRentalTariffs(),
+            availableQuantity: 3
         )
         let fireboatType = RentalType(
             pointID: pointID,
             name: "Пожарник",
             code: "fireboat",
-            tariffs: makeDefaultRentalTariffs(price: Money(amount: 750))
+            tariffs: makeDefaultRentalTariffs(price: Money(amount: 750)),
+            payrollRate: Money(kopecks: 5_000),
+            availableQuantity: 2
         )
 
         let rentalAssets = [
@@ -296,7 +306,8 @@ final class InMemoryCatalogRepository: CatalogRepository {
             fineTemplates: [
                 FineTemplate(pointID: pointID, title: "Утка", amount: Money(amount: 1000), sortOrder: 0),
                 FineTemplate(pointID: pointID, title: "Парусник", amount: Money(amount: 3000), sortOrder: 1)
-            ]
+            ],
+            batteryItems: makeDefaultBatteryItems(pointID: pointID)
         )
 
         var hydratedBundle = bundle
@@ -318,11 +329,52 @@ final class InMemoryCatalogRepository: CatalogRepository {
             )
         ]
     }
+
+    private func makeDefaultBatteryItems(pointID: UUID) -> [BatteryItem] {
+        [
+            "Kweller",
+            "Ladda",
+            "LiitoKala серые",
+            "LiitoKala желтые",
+            "Chameleon",
+            "Rexant",
+            "Космос"
+        ].map { BatteryItem(pointID: pointID, title: $0, quantity: 0) }
+    }
+
+    private func syncRentalAssets(for rentalType: RentalType, in bundle: CatalogBundle) -> CatalogBundle {
+        var updatedBundle = bundle
+        let currentAssets = updatedBundle.rentalAssets
+            .filter { $0.rentalTypeID == rentalType.id }
+            .sorted { $0.displayNumber < $1.displayNumber }
+        let targetCount = rentalType.availableQuantity
+
+        if currentAssets.count > targetCount {
+            let allowedIDs = Set(currentAssets.prefix(targetCount).map(\.id))
+            updatedBundle.rentalAssets.removeAll { asset in
+                asset.rentalTypeID == rentalType.id && !allowedIDs.contains(asset.id)
+            }
+        } else if currentAssets.count < targetCount {
+            let startIndex = currentAssets.count + 1
+            let newAssets = (startIndex...targetCount).map { index in
+                RentalAsset(
+                    pointID: rentalType.pointID,
+                    rentalTypeID: rentalType.id,
+                    displayNumber: "\(index)"
+                )
+            }
+            updatedBundle.rentalAssets.append(contentsOf: newAssets)
+        }
+
+        return updatedBundle
+    }
 }
 
 extension InMemoryCatalogRepository: CatalogRepositoryCacheRefreshing {
-    func refreshCatalog(pointID: UUID, completion: @escaping () -> Void) {
+    func refreshCatalog(pointID: UUID, completion: @escaping (Result<Void, Error>) -> Void) {
         _ = bundle(for: pointID)
-        completion()
+        completion(.success(()))
     }
 }
+
+extension InMemoryCatalogRepository: AdminCatalogRepository {}

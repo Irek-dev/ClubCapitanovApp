@@ -31,8 +31,21 @@ final class PointSelectionInteractor: PointSelectionBusinessLogic {
     func load() {
         // Правила видимости точек находятся в repository. Interactor только сохраняет
         // результат, чтобы потом безопасно обработать выбор по indexPath.
-        points = pointRepository.getAvailablePoints(for: user)
-        presenter.present(response: .init(user: user, points: points))
+        points = []
+        presenter.present(response: .init(user: user, points: points, state: .loading))
+
+        pointRepository.refreshPoints { [weak self] in
+            guard let self else { return }
+
+            if self.pointRepository.lastLoadError != nil {
+                self.points = []
+                self.presenter.present(response: .init(user: self.user, points: [], state: .failed))
+                return
+            }
+
+            self.points = self.pointRepository.getAvailablePoints(for: self.user)
+            self.presenter.present(response: .init(user: self.user, points: self.points, state: .loaded))
+        }
     }
 
     func selectPoint(at index: Int) {

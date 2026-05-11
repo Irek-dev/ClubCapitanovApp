@@ -2,9 +2,8 @@ import Foundation
 
 /// Временная in-memory реализация `AuthRepository`.
 ///
-/// Она хранит пользователей в массиве и ищет активного пользователя по PIN. Это
-/// достаточно для текущего экрана входа и позволяет не завязывать UI на storage раньше
-/// времени.
+/// Оставлена как локальная fallback/test-реализация. Основной app flow теперь
+/// подключается к Firebase через `FirebaseUserRepository`.
 final class InMemoryAuthRepository: AuthRepository {
     // MARK: - Properties
 
@@ -18,7 +17,14 @@ final class InMemoryAuthRepository: AuthRepository {
 
     // MARK: - AuthRepository
 
-    func getUser(pinCode: String) -> User? {
+    func getUser(
+        pinCode: String,
+        completion: @escaping (Result<User?, Error>) -> Void
+    ) {
+        completion(.success(findUser(pinCode: pinCode)))
+    }
+
+    private func findUser(pinCode: String) -> User? {
         // Заблокированные и архивные пользователи не проходят вход, даже если PIN
         // совпал. Это правило уже проверяется через `User.canSignIn`.
         users.first { $0.pinCode == pinCode && $0.canSignIn }
@@ -71,24 +77,19 @@ final class InMemoryAuthRepository: AuthRepository {
     }
 
     func archiveUser(id: UUID) {
-        guard let index = users.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-
-        let user = users[index]
-        users[index] = User(
-            id: user.id,
-            pinCode: user.pinCode,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            role: user.role,
-            accountStatus: .archived,
-            managedPointID: user.managedPointID
-        )
+        users.removeAll { $0.id == id }
     }
 
     private func generateUniquePIN() -> String {
         let usedPINs = Set(users.map(\.pinCode))
+
+        for _ in 0..<10_000 {
+            let pin = Int.random(in: 1000...9999)
+            let pinText = String(format: "%04d", pin)
+            if !usedPINs.contains(pinText) {
+                return pinText
+            }
+        }
 
         for pin in 1000...9999 {
             let pinText = String(format: "%04d", pin)

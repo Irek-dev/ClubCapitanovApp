@@ -15,6 +15,7 @@ final class PointSelectionViewController: UIViewController {
     private let headerLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let emptyLabel = UILabel()
+    private let retryButton = UIButton(type: .system)
     private let tableView = UITableView(frame: .zero, style: .plain)
 
     init(interactor: PointSelectionBusinessLogic) {
@@ -53,6 +54,12 @@ final class PointSelectionViewController: UIViewController {
         emptyLabel.numberOfLines = 0
         emptyLabel.isHidden = true
 
+        retryButton.setTitle("Повторить загрузку", for: .normal)
+        retryButton.titleLabel?.font = BrandFont.demiBold(16)
+        retryButton.tintColor = BrandColor.primaryBlue
+        retryButton.isHidden = true
+        retryButton.addTarget(self, action: #selector(didTapRetry), for: .touchUpInside)
+
         tableView.backgroundColor = BrandColor.clear
         tableView.separatorStyle = .none
         tableView.rowHeight = 86
@@ -63,6 +70,7 @@ final class PointSelectionViewController: UIViewController {
         view.addSubview(headerLabel)
         view.addSubview(subtitleLabel)
         view.addSubview(emptyLabel)
+        view.addSubview(retryButton)
         view.addSubview(tableView)
     }
 
@@ -79,10 +87,18 @@ final class PointSelectionViewController: UIViewController {
         emptyLabel.pinLeft(to: headerLabel.leadingAnchor)
         emptyLabel.pinRight(to: headerLabel.trailingAnchor)
 
+        retryButton.pinTop(to: emptyLabel.bottomAnchor, 12)
+        retryButton.pinCenterX(to: emptyLabel)
+
         tableView.pinTop(to: subtitleLabel.bottomAnchor, 24)
         tableView.pinLeft(to: view.leadingAnchor)
         tableView.pinRight(to: view.trailingAnchor)
         tableView.pinBottom(to: view.bottomAnchor)
+    }
+
+    @objc
+    private func didTapRetry() {
+        interactor.load()
     }
 }
 
@@ -93,6 +109,7 @@ extension PointSelectionViewController: PointSelectionDisplayLogic {
         headerLabel.text = viewModel.title
         subtitleLabel.text = viewModel.subtitle
         emptyLabel.text = viewModel.emptyText
+        retryButton.isHidden = !viewModel.showsRetry
         points = viewModel.points
 
         emptyLabel.isHidden = !points.isEmpty

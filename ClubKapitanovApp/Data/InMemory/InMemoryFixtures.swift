@@ -7,18 +7,21 @@ import Foundation
 /// storage такие данные должны приходить из управляемого источника каталогов и пользователей.
 enum InMemoryFixtures {
     static let blackLakePoint = Point(
+        id: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
         name: "Черное Озеро",
         city: "Казань",
         address: "Черное Озеро"
     )
 
     static let gorkyParkPoint = Point(
+        id: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!,
         name: "Парк Горького",
         city: "Москва",
         address: "Парк Горького"
     )
 
     static let megaPoint = Point(
+        id: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!,
         name: "МЕГА",
         city: "Казань",
         address: "МЕГА"

@@ -38,7 +38,7 @@ final class LoginRouter: LoginRoutingLogic {
     func routeToAdminPointSelection(for user: User) {
         let destination = AdminPointSelectionViewController(
             adminUser: user,
-            pointRepository: container.pointRepository,
+            pointRepository: container.adminPointRepository,
             container: container
         )
         viewController?.navigationController?.pushViewController(destination, animated: true)

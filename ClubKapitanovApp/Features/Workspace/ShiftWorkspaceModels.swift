@@ -13,6 +13,7 @@ enum ShiftWorkspace {
         let rentalTypes: [RentalType]
         let souvenirProducts: [SouvenirProduct]
         let fineTemplates: [FineTemplate]
+        let batteryItems: [BatteryItem]
         var rentalOrders: [RentalOrder]
         var souvenirSales: [SouvenirSale]
         var fines: [FineRecord]

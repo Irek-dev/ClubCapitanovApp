@@ -11,15 +11,23 @@ enum PointSelection {
     }
 
     enum Load {
+        enum State {
+            case loading
+            case loaded
+            case failed
+        }
+
         struct Response {
             let user: User
             let points: [Point]
+            let state: State
         }
 
         struct ViewModel {
             let title: String
             let subtitle: String
             let emptyText: String
+            let showsRetry: Bool
             let points: [PointViewModel]
         }
     }

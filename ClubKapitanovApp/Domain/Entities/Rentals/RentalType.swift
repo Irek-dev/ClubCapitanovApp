@@ -16,6 +16,10 @@ struct RentalType: Identifiable, Hashable, Codable, Sendable {
     let code: String
     /// Доступные тарифы для этого типа на конкретной точке.
     let tariffs: [RentalTariff]
+    /// Ставка зарплаты за одну сдачу одного объекта этого типа.
+    let payrollRate: Money
+    /// Количество доступных единиц на точке. Номерами объектов админка не управляет.
+    let availableQuantity: Int
     /// Признак того, что тип активен и доступен на точке.
     let isActive: Bool
 
@@ -37,6 +41,8 @@ struct RentalType: Identifiable, Hashable, Codable, Sendable {
         name: String,
         code: String,
         tariffs: [RentalTariff],
+        payrollRate: Money = Money(kopecks: 5_000),
+        availableQuantity: Int = 0,
         isActive: Bool = true
     ) {
         self.id = id
@@ -44,6 +50,8 @@ struct RentalType: Identifiable, Hashable, Codable, Sendable {
         self.name = name
         self.code = code
         self.tariffs = tariffs
+        self.payrollRate = payrollRate
+        self.availableQuantity = max(0, availableQuantity)
         self.isActive = isActive
     }
 }
