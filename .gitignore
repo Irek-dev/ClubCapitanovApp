@@ -12,6 +12,9 @@ DerivedData/
 build/
 .build/
 
+# Firebase local config
+GoogleService-Info.plist
+
 # App packaging
 *.ipa
 *.dSYM.zip
